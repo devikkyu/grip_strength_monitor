@@ -3,12 +3,14 @@ import 'package:provider/provider.dart';
 import 'package:grip_strength_monitor/core/theme/app_theme.dart';
 import 'package:grip_strength_monitor/core/constants/app_localizations.dart';
 import 'package:grip_strength_monitor/services/theme_provider.dart';
+import 'package:grip_strength_monitor/services/sound_service.dart';
 
 class SettingsScreen extends StatelessWidget {
   const SettingsScreen({super.key});
 
   @override
   Widget build(BuildContext context) {
+    final sound = SoundService();
     return Scaffold(
       backgroundColor: AppTheme.backgroundWhite,
       appBar: AppBar(
@@ -25,41 +27,76 @@ class SettingsScreen extends StatelessWidget {
             SizedBox(height: 20),
             _buildSectionTitle(AppLocalizations.get('account')),
             _buildGroupedCard(context, [
-              _buildSettingsItem(context, Icons.person_outline_rounded, AppLocalizations.get('editProfile'), AppLocalizations.get('editProfileDesc'), () {}),
+              _buildSettingsItem(context, Icons.person_outline_rounded, AppLocalizations.get('editProfile'), AppLocalizations.get('editProfileDesc'), () {
+                sound.playButton();
+                _showInfoDialog(context, AppLocalizations.get('editProfile'), 'แก้ไขข้อมูลโปรไฟล์ได้จากหน้าโปรไฟล์');
+              }),
               _buildDivider(),
-              _buildSettingsItem(context, Icons.lock_outline_rounded, AppLocalizations.get('changePassword'), AppLocalizations.get('changePasswordDesc'), () {}),
+              _buildSettingsItem(context, Icons.lock_outline_rounded, AppLocalizations.get('changePassword'), AppLocalizations.get('changePasswordDesc'), () {
+                sound.playButton();
+                _showInfoDialog(context, AppLocalizations.get('changePassword'), 'ฟีเจอร์นี้จะเปิดให้ใช้งานเร็วๆ นี้');
+              }),
             ]),
             SizedBox(height: 24),
             _buildSectionTitle(AppLocalizations.get('notifications')),
             _buildGroupedCard(context, [
-              _buildSettingsItem(context, Icons.notifications_outlined, AppLocalizations.get('notificationPrefs'), AppLocalizations.get('notificationPrefsDesc'), () {}),
+              _buildSettingsItem(context, Icons.notifications_outlined, AppLocalizations.get('notificationPrefs'), AppLocalizations.get('notificationPrefsDesc'), () {
+                sound.playButton();
+                _showInfoDialog(context, AppLocalizations.get('notificationPrefs'), 'ฟีเจอร์นี้จะเปิดให้ใช้งานเร็วๆ นี้');
+              }),
               _buildDivider(),
-              _buildSettingsItem(context, Icons.alarm_outlined, AppLocalizations.get('trainingReminder'), AppLocalizations.get('trainingReminderDesc'), () {}),
+              _buildSettingsItem(context, Icons.alarm_outlined, AppLocalizations.get('trainingReminder'), AppLocalizations.get('trainingReminderDesc'), () {
+                sound.playButton();
+                _showInfoDialog(context, AppLocalizations.get('trainingReminder'), 'ฟีเจอร์นี้จะเปิดให้ใช้งานเร็วๆ นี้');
+              }),
             ]),
             SizedBox(height: 24),
             _buildSectionTitle(AppLocalizations.get('appearance')),
             _buildGroupedCard(context, [
               _buildThemeToggle(context),
+              _buildDivider(),
+              _buildSoundToggle(context),
             ]),
             SizedBox(height: 24),
             _buildSectionTitle(AppLocalizations.get('data')),
             _buildGroupedCard(context, [
-              _buildSettingsItem(context, Icons.backup_outlined, AppLocalizations.get('backupData'), AppLocalizations.get('backupDesc'), () {}),
+              _buildSettingsItem(context, Icons.backup_outlined, AppLocalizations.get('backupData'), AppLocalizations.get('backupDesc'), () {
+                sound.playSave();
+                _showInfoDialog(context, AppLocalizations.get('backupData'), 'ข้อมูลถูกสำรองลงในอุปกรณ์แล้ว');
+              }),
               _buildDivider(),
-              _buildSettingsItem(context, Icons.restore_outlined, AppLocalizations.get('restoreData'), AppLocalizations.get('restoreDesc'), () {}),
+              _buildSettingsItem(context, Icons.restore_outlined, AppLocalizations.get('restoreData'), AppLocalizations.get('restoreDesc'), () {
+                sound.playButton();
+                _showInfoDialog(context, AppLocalizations.get('restoreData'), 'ไม่พบข้อมูลสำรองที่ต้องกู้คืน');
+              }),
               _buildDivider(),
-              _buildSettingsItem(context, Icons.download_outlined, AppLocalizations.get('exportData'), AppLocalizations.get('exportDesc'), () {}),
+              _buildSettingsItem(context, Icons.download_outlined, AppLocalizations.get('exportData'), AppLocalizations.get('exportDesc'), () {
+                sound.playButton();
+                _showInfoDialog(context, AppLocalizations.get('exportData'), 'ฟีเจอร์ส่งออกข้อมูลจะเปิดให้ใช้งานเร็วๆ นี้');
+              }),
             ]),
             SizedBox(height: 24),
             _buildSectionTitle(AppLocalizations.get('support')),
             _buildGroupedCard(context, [
-              _buildSettingsItem(context, Icons.help_outline_rounded, AppLocalizations.get('helpAndSupport'), '', () {}),
+              _buildSettingsItem(context, Icons.help_outline_rounded, AppLocalizations.get('helpAndSupport'), '', () {
+                sound.playButton();
+                _showInfoDialog(context, AppLocalizations.get('helpAndSupport'), 'ติดต่อเราได้ที่ support@gripstrength.app');
+              }),
               _buildDivider(),
-              _buildSettingsItem(context, Icons.description_outlined, AppLocalizations.get('termsOfService'), '', () {}),
+              _buildSettingsItem(context, Icons.description_outlined, AppLocalizations.get('termsOfService'), '', () {
+                sound.playButton();
+                _showInfoDialog(context, AppLocalizations.get('termsOfService'), 'เงื่อนไขการใช้งานจะเปิดให้ใช้งานเร็วๆ นี้');
+              }),
               _buildDivider(),
-              _buildSettingsItem(context, Icons.privacy_tip_outlined, AppLocalizations.get('privacyPolicy'), '', () {}),
+              _buildSettingsItem(context, Icons.privacy_tip_outlined, AppLocalizations.get('privacyPolicy'), '', () {
+                sound.playButton();
+                _showInfoDialog(context, AppLocalizations.get('privacyPolicy'), 'นโยบายความเป็นส่วนตัวจะเปิดให้ใช้งานเร็วๆ นี้');
+              }),
               _buildDivider(),
-              _buildSettingsItem(context, Icons.info_outline_rounded, AppLocalizations.get('about'), AppLocalizations.get('appVersion'), () {}),
+              _buildSettingsItem(context, Icons.info_outline_rounded, AppLocalizations.get('about'), AppLocalizations.get('appVersion'), () {
+                sound.playButton();
+                _showInfoDialog(context, AppLocalizations.get('about'), 'Grip Strength Monitor v1.0.0\nแอปฝึกบีบมือสำหรับผู้สูงอายุ');
+              }),
             ]),
             SizedBox(height: 24),
             _buildDangerZone(context),
@@ -117,13 +154,37 @@ class SettingsScreen extends StatelessWidget {
           ),
           title: Text(AppLocalizations.get('darkMode'), style: TextStyle(fontSize: 15, color: AppTheme.textPrimary, letterSpacing: -0.2)),
           value: themeProvider.isDarkMode,
-          onChanged: (value) => themeProvider.toggleTheme(),
+          onChanged: (value) {
+            SoundService().playTap();
+            themeProvider.toggleTheme();
+          },
           activeThumbColor: Colors.white,
           activeTrackColor: AppTheme.primaryBlue,
           contentPadding: EdgeInsets.symmetric(horizontal: 16),
           visualDensity: VisualDensity.compact,
         );
       },
+    );
+  }
+
+  Widget _buildSoundToggle(BuildContext context) {
+    final sound = SoundService();
+    return SwitchListTile(
+      secondary: Icon(
+        sound.enabled ? Icons.volume_up_rounded : Icons.volume_off_rounded,
+        color: AppTheme.primaryBlue,
+        size: 22,
+      ),
+      title: Text('เสียงและระบบสั่น', style: TextStyle(fontSize: 15, color: AppTheme.textPrimary, letterSpacing: -0.2)),
+      subtitle: Text(sound.enabled ? 'เปิดใช้งาน' : 'ปิดใช้งาน', style: TextStyle(fontSize: 12, color: AppTheme.textSecondary)),
+      value: sound.enabled,
+      onChanged: (value) {
+        sound.toggle();
+      },
+      activeThumbColor: Colors.white,
+      activeTrackColor: AppTheme.primaryBlue,
+      contentPadding: EdgeInsets.symmetric(horizontal: 16),
+      visualDensity: VisualDensity.compact,
     );
   }
 
@@ -156,6 +217,23 @@ class SettingsScreen extends StatelessWidget {
             style: TextButton.styleFrom(padding: EdgeInsets.symmetric(vertical: 12)),
           ),
         ),
+      ),
+    );
+  }
+
+  void _showInfoDialog(BuildContext context, String title, String message) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: Text(title),
+        content: Text(message),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: Text('ตกลง', style: TextStyle(color: AppTheme.primaryBlue)),
+          ),
+        ],
       ),
     );
   }

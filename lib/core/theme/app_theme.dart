@@ -3,24 +3,30 @@ import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 class AppTheme {
-  static const Color primaryPink = Color(0xFFFF6B9D);
-  static const Color primaryLightPink = Color(0xFFFFB3D1);
-  static const Color primaryDarkPink = Color(0xFFE84D8A);
-  static const Color primaryBlue = Color(0xFFFF6B9D);
-  static const Color primaryLightBlue = Color(0xFFFFB3D1);
-  static const Color accentGreen = Color(0xFF7DD3A8);
+  static const Color primary = Color(0xFF6C4DF6);
+  static const Color primaryLight = Color(0xFF8E72FF);
+  static const Color primaryPale = Color(0xFFB8A6FF);
+  static const Color accentGreen = Color(0xFF45C27C);
   static const Color accentLightGreen = Color(0xFFA8E6CF);
-  static const Color backgroundWhite = Color(0xFFFFF5F8);
-  static const Color backgroundDark = Color(0xFF1A1A2E);
-  static const Color cardWhite = Colors.white;
-  static const Color cardDark = Color(0xFF2D2D44);
-  static const Color warningOrange = Color(0xFFFFB366);
-  static const Color riskRed = Color(0xFFFF6B6B);
-  static const Color textPrimary = Color(0xFF2D2D44);
-  static const Color textSecondary = Color(0xFF8E8E93);
+  static const Color background = Color(0xFFFAFAFC);
+  static const Color card = Colors.white;
+  static const Color warningOrange = Color(0xFFF5A623);
+  static const Color riskRed = Color(0xFFFF5A5F);
+  static const Color info = Color(0xFF00B8C8);
+  static const Color textPrimary = Color(0xFF222222);
+  static const Color textSecondary = Color(0xFF777777);
   static const Color textTertiary = Color(0xFFAEAEB2);
   static const Color separator = Color(0xFFE8E8E8);
   static const Color systemGray6 = Color(0xFFF5F5F5);
+  static const Color backgroundDark = Color(0xFF1A1A2E);
+  static const Color cardDark = Color(0xFF2D2D44);
+
+  static const Color primaryPink = primary;
+  static const Color primaryLightPink = primaryPale;
+  static const Color primaryBlue = primary;
+  static const Color primaryLightBlue = primaryPale;
+  static const Color backgroundWhite = background;
+  static const Color cardWhite = card;
 
   static TextStyle _thaiStyle({
     double fontSize = 14,
@@ -52,7 +58,7 @@ class AppTheme {
     return ThemeData(
       useMaterial3: true,
       brightness: Brightness.light,
-      scaffoldBackgroundColor: backgroundWhite,
+      scaffoldBackgroundColor: background,
       textTheme: baseTextTheme.copyWith(
         headlineLarge: baseTextTheme.headlineLarge?.copyWith(color: textPrimary, fontWeight: FontWeight.w700),
         headlineMedium: baseTextTheme.headlineMedium?.copyWith(color: textPrimary, fontWeight: FontWeight.w700),
@@ -63,7 +69,7 @@ class AppTheme {
         bodySmall: baseTextTheme.bodySmall?.copyWith(color: textSecondary),
       ),
       appBarTheme: AppBarTheme(
-        backgroundColor: backgroundWhite,
+        backgroundColor: background,
         foregroundColor: textPrimary,
         elevation: 0,
         centerTitle: true,
@@ -71,25 +77,25 @@ class AppTheme {
         titleTextStyle: GoogleFonts.sarabun(color: textPrimary, fontSize: 18, fontWeight: FontWeight.w600),
       ),
       cardTheme: CardThemeData(
-        color: cardWhite,
+        color: card,
         elevation: 0,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
       ),
       navigationBarTheme: NavigationBarThemeData(
         backgroundColor: Colors.white.withValues(alpha: 0.94),
         surfaceTintColor: Colors.transparent,
-        indicatorColor: primaryPink.withValues(alpha: 0.15),
+        indicatorColor: primary.withValues(alpha: 0.15),
         elevation: 0,
         labelTextStyle: WidgetStateProperty.resolveWith((states) {
           if (states.contains(WidgetState.selected)) {
-            return GoogleFonts.sarabun(color: primaryPink, fontSize: 11, fontWeight: FontWeight.w600);
+            return GoogleFonts.sarabun(color: primary, fontSize: 11, fontWeight: FontWeight.w600);
           }
           return GoogleFonts.sarabun(color: textSecondary, fontSize: 11);
         }),
       ),
       elevatedButtonTheme: ElevatedButtonThemeData(
         style: ElevatedButton.styleFrom(
-          backgroundColor: primaryPink,
+          backgroundColor: primary,
           foregroundColor: Colors.white,
           elevation: 0,
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
@@ -132,18 +138,18 @@ class AppTheme {
       navigationBarTheme: NavigationBarThemeData(
         backgroundColor: const Color(0xFF1C1C1E).withValues(alpha: 0.94),
         surfaceTintColor: Colors.transparent,
-        indicatorColor: primaryPink.withValues(alpha: 0.2),
+        indicatorColor: primary.withValues(alpha: 0.2),
         elevation: 0,
         labelTextStyle: WidgetStateProperty.resolveWith((states) {
           if (states.contains(WidgetState.selected)) {
-            return GoogleFonts.sarabun(color: primaryPink, fontSize: 11, fontWeight: FontWeight.w600);
+            return GoogleFonts.sarabun(color: primary, fontSize: 11, fontWeight: FontWeight.w600);
           }
           return GoogleFonts.sarabun(color: textSecondary, fontSize: 11);
         }),
       ),
       elevatedButtonTheme: ElevatedButtonThemeData(
         style: ElevatedButton.styleFrom(
-          backgroundColor: primaryPink,
+          backgroundColor: primary,
           foregroundColor: Colors.white,
           elevation: 0,
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),

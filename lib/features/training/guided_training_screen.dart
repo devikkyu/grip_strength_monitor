@@ -7,6 +7,8 @@ import 'package:grip_strength_monitor/core/theme/app_theme.dart';
 import 'package:grip_strength_monitor/core/constants/app_localizations.dart';
 import 'package:grip_strength_monitor/services/sound_service.dart';
 import 'package:grip_strength_monitor/services/todo_provider.dart';
+import 'package:grip_strength_monitor/services/history_provider.dart';
+import 'package:grip_strength_monitor/shared/models/training_session.dart';
 
 class GuidedTrainingScreen extends StatefulWidget {
   const GuidedTrainingScreen({super.key});
@@ -36,7 +38,7 @@ class _GuidedTrainingScreenState extends State<GuidedTrainingScreen>
 
   final _phases = [
     {'name': 'วอร์มอัพ', 'icon': Icons.wb_sunny_rounded, 'color': Color(0xFFFFB366), 'reps': 5, 'duration': 30, 'instruction': 'บีบมือเบาๆ ตามจังหวะ'},
-    {'name': 'ฝึกหลัก', 'icon': Icons.fitness_center_rounded, 'color': Color(0xFFFF6B9D), 'reps': 10, 'duration': 60, 'instruction': 'บีบมือเต็มแรงตามจังหวะ'},
+    {'name': 'ฝึกหลัก', 'icon': Icons.fitness_center_rounded, 'color': AppTheme.primary, 'reps': 10, 'duration': 60, 'instruction': 'บีบมือเต็มแรงตามจังหวะ'},
     {'name': 'คูลดาวน์', 'icon': Icons.ac_unit_rounded, 'color': Color(0xFF7DD3A8), 'reps': 5, 'duration': 30, 'instruction': 'บีบมือเบาๆ ผ่อนคลาย'},
   ];
 
@@ -139,6 +141,17 @@ class _GuidedTrainingScreenState extends State<GuidedTrainingScreen>
     if (mounted) {
       context.read<TodoProvider>().onAudioRhythm();
       context.read<TodoProvider>().onConsecutiveTraining();
+      context.read<HistoryProvider>().addSession(TrainingSession(
+        id: DateTime.now().millisecondsSinceEpoch.toString(),
+        date: DateTime.now(),
+        type: 'guided_training',
+        gripStrength: 0,
+        maxGrip: 0,
+        minGrip: 0,
+        durationSeconds: _elapsed.toInt(),
+        roundCount: _currentRep,
+        status: 'completed',
+      ));
     }
 
     setState(() {
@@ -262,7 +275,6 @@ class _GuidedTrainingScreenState extends State<GuidedTrainingScreen>
           Text('ขั้นตอนการฝึก', style: GoogleFonts.sarabun(fontSize: 18, fontWeight: FontWeight.w700, color: AppTheme.textPrimary)),
           SizedBox(height: 12),
           ..._phases.asMap().entries.map((entry) {
-            final i = entry.key;
             final p = entry.value;
             final color = p['color'] as Color;
             return Container(

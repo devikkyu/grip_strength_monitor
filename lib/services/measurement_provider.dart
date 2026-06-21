@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
 import 'dart:async';
 import 'dart:math';
+import 'package:grip_strength_monitor/services/websocket_service.dart';
+import 'package:grip_strength_monitor/services/history_provider.dart';
+import 'package:grip_strength_monitor/shared/models/training_session.dart';
 
 class MeasurementState {
   final bool isMeasuring;
@@ -53,7 +56,11 @@ class MeasurementState {
 class MeasurementProvider extends ChangeNotifier {
   MeasurementState _state = MeasurementState();
   Timer? _timer;
-  final Random _random = Random();
+  final WebSocketService _wsService;
+  final HistoryProvider _historyProvider;
+  StreamSubscription? _wsSubscription;
+
+  MeasurementProvider(this._wsService, this._historyProvider);
 
   MeasurementState get state => _state;
 
@@ -64,12 +71,33 @@ class MeasurementProvider extends ChangeNotifier {
       gripHistory: [],
     );
     _startTimer();
-    _startGripSimulation();
+    _subscribeToGripStream();
     notifyListeners();
+  }
+
+  void _subscribeToGripStream() {
+    _wsSubscription?.cancel();
+    _wsSubscription = _wsService.gripStream.listen(
+      (value) {
+        final history = List<double>.from(_state.gripHistory)..add(value);
+        final maxVal = history.isNotEmpty ? history.reduce(max) : 0.0;
+        final minVal = history.isNotEmpty ? history.reduce(min) : 0.0;
+
+        _state = _state.copyWith(
+          currentGrip: value,
+          maxGrip: maxVal,
+          minGrip: minVal,
+          gripHistory: history,
+        );
+        notifyListeners();
+      },
+      onError: (_) {},
+    );
   }
 
   void stopMeasurement() {
     _timer?.cancel();
+    _wsSubscription?.cancel();
     final avg = _state.gripHistory.isNotEmpty
         ? _state.gripHistory.reduce((a, b) => a + b) / _state.gripHistory.length
         : 0.0;
@@ -78,6 +106,21 @@ class MeasurementProvider extends ChangeNotifier {
       isCompleted: true,
       avgGrip: avg,
     );
+
+    if (_state.gripHistory.isNotEmpty) {
+      _historyProvider.addSession(TrainingSession(
+        id: DateTime.now().millisecondsSinceEpoch.toString(),
+        date: DateTime.now(),
+        type: 'measurement',
+        gripStrength: avg,
+        maxGrip: _state.maxGrip,
+        minGrip: _state.minGrip,
+        durationSeconds: _state.elapsedSeconds,
+        roundCount: _state.roundCount,
+        status: 'completed',
+      ));
+    }
+
     notifyListeners();
   }
 
@@ -98,30 +141,6 @@ class MeasurementProvider extends ChangeNotifier {
     });
   }
 
-  void _startGripSimulation() {
-    Timer.periodic(Duration(milliseconds: 100), (timer) {
-      if (!_state.isMeasuring) {
-        timer.cancel();
-        return;
-      }
-      final baseGrip = 40.0;
-      final variation = _random.nextDouble() * 15 - 5;
-      final newGrip = baseGrip + variation;
-
-      final history = List<double>.from(_state.gripHistory)..add(newGrip);
-      final maxVal = history.reduce(max);
-      final minVal = history.reduce(min);
-
-      _state = _state.copyWith(
-        currentGrip: newGrip,
-        maxGrip: maxVal,
-        minGrip: minVal,
-        gripHistory: history,
-      );
-      notifyListeners();
-    });
-  }
-
   void incrementRound() {
     _state = _state.copyWith(roundCount: _state.roundCount + 1);
     notifyListeners();
@@ -130,6 +149,7 @@ class MeasurementProvider extends ChangeNotifier {
   @override
   void dispose() {
     _timer?.cancel();
+    _wsSubscription?.cancel();
     super.dispose();
   }
 }

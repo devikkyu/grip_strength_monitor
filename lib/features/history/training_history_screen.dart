@@ -1,8 +1,9 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 import 'package:grip_strength_monitor/core/theme/app_theme.dart';
 import 'package:grip_strength_monitor/core/constants/app_localizations.dart';
 import 'package:grip_strength_monitor/core/utils/animations.dart';
-import 'package:grip_strength_monitor/services/mock_data_service.dart';
+import 'package:grip_strength_monitor/services/history_provider.dart';
 import 'package:grip_strength_monitor/shared/models/training_session.dart';
 
 class TrainingHistoryScreen extends StatefulWidget {
@@ -15,7 +16,6 @@ class TrainingHistoryScreen extends StatefulWidget {
 class _TrainingHistoryScreenState extends State<TrainingHistoryScreen>
     with SingleTickerProviderStateMixin {
   late final AnimationController _animController;
-  late final List<TrainingSession> _sessions;
   String _selectedFilter = 'all';
 
   @override
@@ -25,7 +25,6 @@ class _TrainingHistoryScreenState extends State<TrainingHistoryScreen>
       duration: Duration(milliseconds: 1000),
       vsync: this,
     )..forward();
-    _sessions = MockDataService.getTrainingHistory();
   }
 
   @override
@@ -34,9 +33,9 @@ class _TrainingHistoryScreenState extends State<TrainingHistoryScreen>
     super.dispose();
   }
 
-  List<TrainingSession> get _filteredSessions {
-    if (_selectedFilter == 'all') return _sessions;
-    return _sessions.where((s) => s.type == _selectedFilter).toList();
+  List<TrainingSession> _getFilteredSessions(List<TrainingSession> sessions) {
+    if (_selectedFilter == 'all') return sessions;
+    return sessions.where((s) => s.type == _selectedFilter).toList();
   }
 
   @override
@@ -53,15 +52,20 @@ class _TrainingHistoryScreenState extends State<TrainingHistoryScreen>
           child: Container(height: 0.5, color: AppTheme.separator),
         ),
       ),
-      body: Column(
-        children: [
-          _buildFilterBar(),
-          Expanded(
-            child: _filteredSessions.isEmpty
-                ? _buildEmptyState()
-                : _buildSessionList(),
-          ),
-        ],
+      body: Consumer<HistoryProvider>(
+        builder: (context, historyProvider, child) {
+          final filteredSessions = _getFilteredSessions(historyProvider.sessions);
+          return Column(
+            children: [
+              _buildFilterBar(),
+              Expanded(
+                child: filteredSessions.isEmpty
+                    ? _buildEmptyState()
+                    : _buildSessionList(filteredSessions),
+              ),
+            ],
+          );
+        },
       ),
     );
   }
@@ -141,12 +145,12 @@ class _TrainingHistoryScreenState extends State<TrainingHistoryScreen>
     );
   }
 
-  Widget _buildSessionList() {
+  Widget _buildSessionList(List<TrainingSession> sessions) {
     return ListView.builder(
       padding: EdgeInsets.fromLTRB(20, 0, 20, 20),
-      itemCount: _filteredSessions.length,
+      itemCount: sessions.length,
       itemBuilder: (context, index) {
-        final session = _filteredSessions[index];
+        final session = sessions[index];
         return AppAnimations.fadeSlideUp(
           controller: _animController,
           delay: index * 0.05,

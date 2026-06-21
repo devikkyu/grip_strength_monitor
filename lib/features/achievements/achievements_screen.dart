@@ -1,8 +1,9 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 import 'package:grip_strength_monitor/core/theme/app_theme.dart';
 import 'package:grip_strength_monitor/core/constants/app_localizations.dart';
 import 'package:grip_strength_monitor/core/utils/animations.dart';
-import 'package:grip_strength_monitor/services/mock_data_service.dart';
+import 'package:grip_strength_monitor/services/achievement_provider.dart';
 import 'package:grip_strength_monitor/shared/models/achievement.dart';
 
 class AchievementsScreen extends StatefulWidget {
@@ -15,7 +16,6 @@ class AchievementsScreen extends StatefulWidget {
 class _AchievementsScreenState extends State<AchievementsScreen>
     with SingleTickerProviderStateMixin {
   late final AnimationController _animController;
-  late final List<Achievement> _achievements;
 
   @override
   void initState() {
@@ -24,7 +24,6 @@ class _AchievementsScreenState extends State<AchievementsScreen>
       duration: Duration(milliseconds: 1000),
       vsync: this,
     )..forward();
-    _achievements = MockDataService.getAchievements();
   }
 
   @override
@@ -35,8 +34,6 @@ class _AchievementsScreenState extends State<AchievementsScreen>
 
   @override
   Widget build(BuildContext context) {
-    final unlockedCount = _achievements.where((a) => a.isUnlocked).length;
-
     return Scaffold(
       backgroundColor: AppTheme.backgroundWhite,
       appBar: AppBar(
@@ -49,29 +46,35 @@ class _AchievementsScreenState extends State<AchievementsScreen>
           child: Container(height: 0.5, color: AppTheme.separator),
         ),
       ),
-      body: Column(
-        children: [
-          _buildProgressHeader(unlockedCount),
-          Expanded(
-            child: ListView.builder(
-              padding: EdgeInsets.fromLTRB(20, 0, 20, 20),
-              itemCount: _achievements.length,
-              itemBuilder: (context, index) {
-                return AppAnimations.fadeSlideUp(
-                  controller: _animController,
-                  delay: index * 0.05,
-                  child: _buildAchievementCard(_achievements[index]),
-                );
-              },
-            ),
-          ),
-        ],
+      body: Consumer<AchievementProvider>(
+        builder: (context, provider, child) {
+          final achievements = provider.achievements;
+          final unlockedCount = provider.unlockedCount;
+
+          return Column(
+            children: [
+              _buildProgressHeader(unlockedCount, achievements.length),
+              Expanded(
+                child: ListView.builder(
+                  padding: EdgeInsets.fromLTRB(20, 0, 20, 20),
+                  itemCount: achievements.length,
+                  itemBuilder: (context, index) {
+                    return AppAnimations.fadeSlideUp(
+                      controller: _animController,
+                      delay: index * 0.05,
+                      child: _buildAchievementCard(achievements[index]),
+                    );
+                  },
+                ),
+              ),
+            ],
+          );
+        },
       ),
     );
   }
 
-  Widget _buildProgressHeader(int unlockedCount) {
-    final total = _achievements.length;
+  Widget _buildProgressHeader(int unlockedCount, int total) {
     final progress = total > 0 ? unlockedCount / total : 0.0;
 
     return Container(
@@ -162,12 +165,10 @@ class _AchievementsScreenState extends State<AchievementsScreen>
               borderRadius: BorderRadius.circular(14),
             ),
             child: Center(
-              child: Text(
+              child: Icon(
                 achievement.icon,
-                style: TextStyle(
-                  fontSize: 28,
-                  color: achievement.isUnlocked ? null : AppTheme.textTertiary,
-                ),
+                size: 28,
+                color: achievement.isUnlocked ? null : AppTheme.textTertiary,
               ),
             ),
           ),

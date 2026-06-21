@@ -1,8 +1,9 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 import 'package:grip_strength_monitor/core/theme/app_theme.dart';
 import 'package:grip_strength_monitor/core/constants/app_localizations.dart';
 import 'package:grip_strength_monitor/core/utils/animations.dart';
-import 'package:grip_strength_monitor/services/mock_data_service.dart';
+import 'package:grip_strength_monitor/services/history_provider.dart';
 
 class StreakCalendarScreen extends StatefulWidget {
   const StreakCalendarScreen({super.key});
@@ -15,9 +16,6 @@ class _StreakCalendarScreenState extends State<StreakCalendarScreen>
     with SingleTickerProviderStateMixin {
   late final AnimationController _animController;
   late final DateTime _currentMonth;
-  late final List<int> _streakDays;
-  late final int _currentStreak;
-  late final int _longestStreak;
 
   @override
   void initState() {
@@ -27,15 +25,63 @@ class _StreakCalendarScreenState extends State<StreakCalendarScreen>
       vsync: this,
     )..forward();
     _currentMonth = DateTime.now();
-    _streakDays = MockDataService.getStreakDays();
-    _currentStreak = MockDataService.getCurrentStreak();
-    _longestStreak = MockDataService.getLongestStreak();
   }
 
   @override
   void dispose() {
     _animController.dispose();
     super.dispose();
+  }
+
+  Set<DateTime> _getTrainingDates(HistoryProvider history) {
+    return history.sessions
+        .map((s) => DateTime(s.date.year, s.date.month, s.date.day))
+        .toSet();
+  }
+
+  List<int> _getStreakDays(HistoryProvider history) {
+    final trainingDates = _getTrainingDates(history);
+    return trainingDates
+        .where((d) => d.year == _currentMonth.year && d.month == _currentMonth.month)
+        .map((d) => d.day)
+        .toList()
+      ..sort();
+  }
+
+  int _getCurrentStreak(HistoryProvider history) {
+    final trainingDates = _getTrainingDates(history);
+    if (trainingDates.isEmpty) return 0;
+
+    var checkDate = DateTime.now();
+    var streak = 0;
+
+    while (trainingDates.contains(DateTime(checkDate.year, checkDate.month, checkDate.day))) {
+      streak++;
+      checkDate = checkDate.subtract(Duration(days: 1));
+    }
+
+    return streak;
+  }
+
+  int _getLongestStreak(HistoryProvider history) {
+    final trainingDates = _getTrainingDates(history);
+    if (trainingDates.isEmpty) return 0;
+
+    final sorted = trainingDates.toList()..sort();
+    var longest = 1;
+    var current = 1;
+
+    for (int i = 1; i < sorted.length; i++) {
+      final diff = sorted[i].difference(sorted[i - 1]).inDays;
+      if (diff == 1) {
+        current++;
+        if (current > longest) longest = current;
+      } else {
+        current = 1;
+      }
+    }
+
+    return longest;
   }
 
   @override
@@ -52,40 +98,48 @@ class _StreakCalendarScreenState extends State<StreakCalendarScreen>
           child: Container(height: 0.5, color: AppTheme.separator),
         ),
       ),
-      body: SingleChildScrollView(
-        padding: EdgeInsets.fromLTRB(20, 12, 20, 20),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            AppAnimations.fadeSlideUp(
-              controller: _animController,
-              delay: 0.0,
-              child: _buildStreakStats(),
+      body: Consumer<HistoryProvider>(
+        builder: (context, history, child) {
+          final streakDays = _getStreakDays(history);
+          final currentStreak = _getCurrentStreak(history);
+          final longestStreak = _getLongestStreak(history);
+
+          return SingleChildScrollView(
+            padding: EdgeInsets.fromLTRB(20, 12, 20, 20),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                AppAnimations.fadeSlideUp(
+                  controller: _animController,
+                  delay: 0.0,
+                  child: _buildStreakStats(currentStreak, longestStreak),
+                ),
+                SizedBox(height: 24),
+                AppAnimations.fadeSlideUp(
+                  controller: _animController,
+                  delay: 0.1,
+                  child: _buildCalendar(streakDays),
+                ),
+                SizedBox(height: 24),
+                AppAnimations.fadeSlideUp(
+                  controller: _animController,
+                  delay: 0.2,
+                  child: _buildStreakInfo(),
+                ),
+              ],
             ),
-            SizedBox(height: 24),
-            AppAnimations.fadeSlideUp(
-              controller: _animController,
-              delay: 0.1,
-              child: _buildCalendar(),
-            ),
-            SizedBox(height: 24),
-            AppAnimations.fadeSlideUp(
-              controller: _animController,
-              delay: 0.2,
-              child: _buildStreakInfo(),
-            ),
-          ],
-        ),
+          );
+        },
       ),
     );
   }
 
-  Widget _buildStreakStats() {
+  Widget _buildStreakStats(int currentStreak, int longestStreak) {
     return Row(
       children: [
         Expanded(
           child: _buildStatCard(
-            _currentStreak.toString(),
+            currentStreak.toString(),
             AppLocalizations.get('currentStreak'),
             Icons.local_fire_department_rounded,
             AppTheme.warningOrange,
@@ -94,7 +148,7 @@ class _StreakCalendarScreenState extends State<StreakCalendarScreen>
         SizedBox(width: 12),
         Expanded(
           child: _buildStatCard(
-            _longestStreak.toString(),
+            longestStreak.toString(),
             AppLocalizations.get('longestStreak'),
             Icons.emoji_events_rounded,
             AppTheme.primaryBlue,
@@ -161,7 +215,7 @@ class _StreakCalendarScreenState extends State<StreakCalendarScreen>
     );
   }
 
-  Widget _buildCalendar() {
+  Widget _buildCalendar(List<int> streakDays) {
     return Container(
       width: double.infinity,
       padding: EdgeInsets.all(20),
@@ -191,7 +245,7 @@ class _StreakCalendarScreenState extends State<StreakCalendarScreen>
                 ),
               ),
               Text(
-                '${_streakDays.length} ${AppLocalizations.get('trainingDays')}',
+                '${streakDays.length} ${AppLocalizations.get('trainingDays')}',
                 style: TextStyle(
                   fontSize: 13,
                   color: AppTheme.primaryBlue,
@@ -203,7 +257,7 @@ class _StreakCalendarScreenState extends State<StreakCalendarScreen>
           SizedBox(height: 20),
           _buildWeekdayHeaders(),
           SizedBox(height: 8),
-          _buildCalendarGrid(),
+          _buildCalendarGrid(streakDays),
         ],
       ),
     );
@@ -229,7 +283,7 @@ class _StreakCalendarScreenState extends State<StreakCalendarScreen>
     );
   }
 
-  Widget _buildCalendarGrid() {
+  Widget _buildCalendarGrid(List<int> streakDays) {
     final firstDay = DateTime(_currentMonth.year, _currentMonth.month, 1);
     final lastDay = DateTime(_currentMonth.year, _currentMonth.month + 1, 0);
     final startWeekday = firstDay.weekday % 7;
@@ -243,7 +297,7 @@ class _StreakCalendarScreenState extends State<StreakCalendarScreen>
     }
 
     for (int day = 1; day <= daysInMonth; day++) {
-      final isTrainingDay = _streakDays.contains(day);
+      final isTrainingDay = streakDays.contains(day);
       final isToday = day == today.day;
       cells.add(_buildDayCell(day, isTrainingDay, isToday));
     }

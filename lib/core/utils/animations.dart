@@ -104,10 +104,10 @@ class AppAnimations {
   static Shader luxuryGradient(Rect bounds) {
     return LinearGradient(
       colors: const [
-        Color(0xFF667eea),
-        Color(0xFF764ba2),
-        Color(0xFF6B8DD6),
-        Color(0xFF8E37D7),
+        Color(0xFF6C4DF6),
+        Color(0xFF8E72FF),
+        Color(0xFFB8A6FF),
+        Color(0xFF6C4DF6),
       ],
       begin: Alignment.topLeft,
       end: Alignment.bottomRight,

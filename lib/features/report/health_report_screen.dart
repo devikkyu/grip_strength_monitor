@@ -1,7 +1,10 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 import 'package:grip_strength_monitor/core/theme/app_theme.dart';
 import 'package:grip_strength_monitor/core/constants/app_localizations.dart';
 import 'package:grip_strength_monitor/core/utils/animations.dart';
+import 'package:grip_strength_monitor/services/history_provider.dart';
+import 'package:grip_strength_monitor/shared/models/training_session.dart';
 
 class HealthReportScreen extends StatefulWidget {
   const HealthReportScreen({super.key});
@@ -30,6 +33,44 @@ class _HealthReportScreenState extends State<HealthReportScreen>
     super.dispose();
   }
 
+  List<TrainingSession> _getSessions(HistoryProvider history, bool weekly) {
+    final now = DateTime.now();
+    final cutoff = weekly
+        ? now.subtract(Duration(days: 7))
+        : now.subtract(Duration(days: 30));
+    return history.sessions.where((s) => s.date.isAfter(cutoff)).toList();
+  }
+
+  List<TrainingSession> _getPreviousSessions(HistoryProvider history, bool weekly) {
+    final now = DateTime.now();
+    final currentCutoff = weekly
+        ? now.subtract(Duration(days: 7))
+        : now.subtract(Duration(days: 30));
+    final previousCutoff = weekly
+        ? now.subtract(Duration(days: 14))
+        : now.subtract(Duration(days: 60));
+    return history.sessions
+        .where((s) => s.date.isAfter(previousCutoff) && s.date.isBefore(currentCutoff))
+        .toList();
+  }
+
+  double _avgGrip(List<TrainingSession> sessions) {
+    if (sessions.isEmpty) return 0.0;
+    return sessions.map((s) => s.gripStrength).reduce((a, b) => a + b) / sessions.length;
+  }
+
+  double _maxGrip(List<TrainingSession> sessions) {
+    if (sessions.isEmpty) return 0.0;
+    return sessions.map((s) => s.maxGrip).reduce((a, b) => a > b ? a : b);
+  }
+
+  double _trend(List<TrainingSession> current, List<TrainingSession> previous) {
+    final avgCurrent = _avgGrip(current);
+    final avgPrevious = _avgGrip(previous);
+    if (avgPrevious == 0) return 0.0;
+    return ((avgCurrent - avgPrevious) / avgPrevious) * 100;
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -46,40 +87,55 @@ class _HealthReportScreenState extends State<HealthReportScreen>
         actions: [
           IconButton(
             icon: Icon(Icons.share_rounded),
-            onPressed: () {},
+            onPressed: () {
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(content: Text('ฟีเจอร์แชร์จะเปิดให้ใช้งานเร็วๆ นี้'), duration: Duration(seconds: 2)),
+              );
+            },
           ),
         ],
       ),
-      body: SingleChildScrollView(
-        padding: EdgeInsets.fromLTRB(20, 12, 20, 20),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            AppAnimations.fadeSlideUp(
-              controller: _animController,
-              delay: 0.0,
-              child: _buildPeriodToggle(),
+      body: Consumer<HistoryProvider>(
+        builder: (context, history, child) {
+          final sessions = _getSessions(history, _isWeekly);
+          final previousSessions = _getPreviousSessions(history, _isWeekly);
+          final avg = _avgGrip(sessions);
+          final max = _maxGrip(sessions);
+          final trend = _trend(sessions, previousSessions);
+          final prevAvg = _avgGrip(previousSessions);
+
+          return SingleChildScrollView(
+            padding: EdgeInsets.fromLTRB(20, 12, 20, 20),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                AppAnimations.fadeSlideUp(
+                  controller: _animController,
+                  delay: 0.0,
+                  child: _buildPeriodToggle(),
+                ),
+                SizedBox(height: 20),
+                AppAnimations.fadeSlideUp(
+                  controller: _animController,
+                  delay: 0.1,
+                  child: _buildSummaryCard(sessions, avg, max, trend),
+                ),
+                SizedBox(height: 20),
+                AppAnimations.fadeSlideUp(
+                  controller: _animController,
+                  delay: 0.2,
+                  child: _buildComparisonCard(avg, prevAvg, trend),
+                ),
+                SizedBox(height: 20),
+                AppAnimations.fadeSlideUp(
+                  controller: _animController,
+                  delay: 0.3,
+                  child: _buildInsightsCard(sessions, trend),
+                ),
+              ],
             ),
-            SizedBox(height: 20),
-            AppAnimations.fadeSlideUp(
-              controller: _animController,
-              delay: 0.1,
-              child: _buildSummaryCard(),
-            ),
-            SizedBox(height: 20),
-            AppAnimations.fadeSlideUp(
-              controller: _animController,
-              delay: 0.2,
-              child: _buildComparisonCard(),
-            ),
-            SizedBox(height: 20),
-            AppAnimations.fadeSlideUp(
-              controller: _animController,
-              delay: 0.3,
-              child: _buildInsightsCard(),
-            ),
-          ],
-        ),
+          );
+        },
       ),
     );
   }
@@ -144,7 +200,7 @@ class _HealthReportScreenState extends State<HealthReportScreen>
     );
   }
 
-  Widget _buildSummaryCard() {
+  Widget _buildSummaryCard(List<TrainingSession> sessions, double avg, double max, double trend) {
     return Container(
       width: double.infinity,
       padding: EdgeInsets.all(20),
@@ -180,9 +236,9 @@ class _HealthReportScreenState extends State<HealthReportScreen>
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              _buildSummaryItem('42.5', 'kg', AppLocalizations.get('averageGrip')),
-              _buildSummaryItem('51.0', 'kg', AppLocalizations.get('maxGrip')),
-              _buildSummaryItem('15', '', AppLocalizations.get('sessions')),
+              _buildSummaryItem(avg.toStringAsFixed(1), 'kg', AppLocalizations.get('averageGrip')),
+              _buildSummaryItem(max.toStringAsFixed(1), 'kg', AppLocalizations.get('maxGrip')),
+              _buildSummaryItem('${sessions.length}', '', AppLocalizations.get('sessions')),
             ],
           ),
           SizedBox(height: 20),
@@ -194,10 +250,14 @@ class _HealthReportScreenState extends State<HealthReportScreen>
             ),
             child: Row(
               children: [
-                Icon(Icons.trending_up_rounded, color: Colors.white, size: 20),
+                Icon(
+                  trend >= 0 ? Icons.trending_up_rounded : Icons.trending_down_rounded,
+                  color: Colors.white,
+                  size: 20,
+                ),
                 SizedBox(width: 8),
                 Text(
-                  '+5.2% ${AppLocalizations.get('improvement')}',
+                  '${trend >= 0 ? '+' : ''}${trend.toStringAsFixed(1)}% ${AppLocalizations.get('improvement')}',
                   style: TextStyle(
                     fontSize: 14,
                     fontWeight: FontWeight.w600,
@@ -251,7 +311,8 @@ class _HealthReportScreenState extends State<HealthReportScreen>
     );
   }
 
-  Widget _buildComparisonCard() {
+  Widget _buildComparisonCard(double currentAvg, double previousAvg, double trend) {
+    final diff = currentAvg - previousAvg;
     return Container(
       width: double.infinity,
       padding: EdgeInsets.all(20),
@@ -280,13 +341,13 @@ class _HealthReportScreenState extends State<HealthReportScreen>
           SizedBox(height: 16),
           _buildComparisonRow(
             AppLocalizations.get('thisWeek'),
-            '42.5 kg',
+            '${currentAvg.toStringAsFixed(1)} kg',
             AppTheme.primaryBlue,
           ),
           SizedBox(height: 12),
           _buildComparisonRow(
             AppLocalizations.get('lastWeek'),
-            '40.4 kg',
+            '${previousAvg.toStringAsFixed(1)} kg',
             AppTheme.textSecondary,
           ),
           SizedBox(height: 16),
@@ -295,17 +356,17 @@ class _HealthReportScreenState extends State<HealthReportScreen>
           Row(
             children: [
               Icon(
-                Icons.arrow_upward_rounded,
-                color: AppTheme.accentGreen,
+                diff >= 0 ? Icons.arrow_upward_rounded : Icons.arrow_downward_rounded,
+                color: diff >= 0 ? AppTheme.accentGreen : AppTheme.riskRed,
                 size: 20,
               ),
               SizedBox(width: 8),
               Text(
-                '+2.1 kg (+5.2%)',
+                '${diff >= 0 ? '+' : ''}${diff.toStringAsFixed(1)} kg (${trend >= 0 ? '+' : ''}${trend.toStringAsFixed(1)}%)',
                 style: TextStyle(
                   fontSize: 14,
                   fontWeight: FontWeight.w600,
-                  color: AppTheme.accentGreen,
+                  color: diff >= 0 ? AppTheme.accentGreen : AppTheme.riskRed,
                 ),
               ),
             ],
@@ -338,7 +399,8 @@ class _HealthReportScreenState extends State<HealthReportScreen>
     );
   }
 
-  Widget _buildInsightsCard() {
+  Widget _buildInsightsCard(List<TrainingSession> sessions, double trend) {
+    final trainedDays = sessions.map((s) => DateTime(s.date.year, s.date.month, s.date.day)).toSet().length;
     return Container(
       width: double.infinity,
       padding: EdgeInsets.all(20),
@@ -368,21 +430,25 @@ class _HealthReportScreenState extends State<HealthReportScreen>
           _buildInsightItem(
             Icons.check_circle_rounded,
             AppLocalizations.get('consistency'),
-            AppLocalizations.get('trainedDaysThisWeek'),
+            'ฝึก $trainedDays วัน${_isWeekly ? 'ในสัปดาห์นี้' : 'ในเดือนนี้'}',
             AppTheme.accentGreen,
           ),
           SizedBox(height: 12),
           _buildInsightItem(
             Icons.trending_up_rounded,
             AppLocalizations.get('improvement'),
-            AppLocalizations.get('gripImproved'),
-            AppTheme.primaryBlue,
+            trend >= 0
+                ? 'แรงบีบเพิ่มขึ้น ${trend.toStringAsFixed(1)}%'
+                : 'แรงบีบลดลง ${trend.abs().toStringAsFixed(1)}%',
+            trend >= 0 ? AppTheme.primaryBlue : AppTheme.warningOrange,
           ),
           SizedBox(height: 12),
           _buildInsightItem(
             Icons.lightbulb_rounded,
             AppLocalizations.get('recommendation'),
-            AppLocalizations.get('keepTrainingRecommendation'),
+            sessions.isEmpty
+                ? 'เริ่มฝึกเพื่อดูคำแนะนำ'
+                : AppLocalizations.get('keepTrainingRecommendation'),
             AppTheme.warningOrange,
           ),
         ],

@@ -1,196 +1,227 @@
 import 'dart:async';
-import 'dart:math';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:just_audio/just_audio.dart';
 import 'package:provider/provider.dart';
 import 'package:grip_strength_monitor/core/theme/app_theme.dart';
+import 'package:grip_strength_monitor/features/game/models/song_data.dart';
+import 'package:grip_strength_monitor/features/game/services/audio_manager.dart';
+import 'package:grip_strength_monitor/features/game/services/beatmap_generator.dart';
 import 'package:grip_strength_monitor/services/sound_service.dart';
-import 'package:grip_strength_monitor/services/music_service.dart';
 import 'package:grip_strength_monitor/services/todo_provider.dart';
 
 class MusicRhythmScreen extends StatefulWidget {
-  const MusicRhythmScreen({super.key});
+  final SongData song;
+  const MusicRhythmScreen({super.key, required this.song});
 
   @override
   State<MusicRhythmScreen> createState() => _MusicRhythmScreenState();
 }
 
-class _GameNote {
-  double y;
-  final bool isLong;
-  bool hit;
-  bool missed;
-  _GameNote({required this.y, required this.isLong, this.hit = false, this.missed = false});
+class _ActiveNote {
+  final BeatNote beat;
+  double y = -80;
+  bool hit = false;
+  bool missed = false;
+
+  _ActiveNote({required this.beat});
 }
 
 class _MusicRhythmScreenState extends State<MusicRhythmScreen> {
   final SoundService _sound = SoundService();
-  final MusicService _music = MusicService();
-  final TextEditingController _urlController = TextEditingController();
-  final Random _rand = Random();
+  final AudioManager _audio = AudioManager();
+  StreamSubscription<Duration>? _positionSub;
+  StreamSubscription<PlayerState>? _stateSub;
+  bool _endGameCalled = false;
 
-  bool _isLoading = false;
   bool _isGameStarted = false;
   bool _isGameOver = false;
   bool _isPaused = false;
-  String? _loadError;
-  bool _songLoaded = false;
-  bool _useDemo = false;
+  bool _isLoading = true;
+  bool _loadFailed = false;
 
   int _score = 0;
-  int _lives = 3;
   int _perfect = 0;
   int _good = 0;
   int _miss = 0;
+  int _maxCombo = 0;
   int _combo = 0;
 
-  List<_GameNote> _notes = [];
-  Timer? _gameTimer;
-  double _elapsed = 0;
-  double _nextSpawn = 0;
-  int _spawned = 0;
-  int _total = 25;
-  double _bpm = 100;
+  List<_ActiveNote> _activeNotes = [];
+  List<BeatNote> _beatMap = [];
+  int _nextBeatIndex = 0;
+  int _processedBeats = 0;
+
+  static const double _travelTimeMs = 2000;
+  static const double _hitWindowPerfect = 50;
+  static const double _hitWindowGood = 120;
+  static const double _hitWindowOk = 200;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadSong();
+  }
 
   @override
   void dispose() {
-    _urlController.dispose();
-    _gameTimer?.cancel();
-    _music.stop();
+    _positionSub?.cancel();
+    _stateSub?.cancel();
+    _audio.stop();
     super.dispose();
   }
 
   Future<void> _loadSong() async {
-    final url = _urlController.text.trim();
-    if (url.isEmpty) {
-      setState(() => _loadError = 'กรุณาใส่ YouTube URL');
-      return;
-    }
+    final success = await _audio.loadSong(widget.song);
+    if (!mounted) return;
 
-    setState(() { _isLoading = true; _loadError = null; });
-
-    try {
-      final success = await _music.loadFromYouTube(url);
-      if (success) {
-        setState(() {
-          _isLoading = false;
-          _songLoaded = true;
-          _bpm = _music.currentBPM;
-          _total = (_music.totalDuration.inSeconds * (_bpm / 60)).round().clamp(15, 50);
-        });
-      } else {
-        setState(() {
-          _isLoading = false;
-          _loadError = 'ไม่สามารถโหลดเพลงได้ ลองใส่ URL ใหม่ หรือใช้โหมดสาธิต';
-        });
-      }
-    } catch (e) {
+    if (success) {
+      final actualDuration = _audio.duration;
+      _beatMap = BeatmapGenerator.generate(
+        bpm: widget.song.bpm,
+        duration: actualDuration,
+      );
+      _beatMap = BeatmapGenerator.validate(
+        beatMap: _beatMap,
+        songDuration: actualDuration,
+      );
+      setState(() => _isLoading = false);
+    } else {
       setState(() {
         _isLoading = false;
-        _loadError = 'เกิดข้อผิดพลาด: $e';
+        _loadFailed = true;
       });
     }
   }
 
-  void _startDemoMode() {
-    setState(() {
-      _useDemo = true;
-      _songLoaded = true;
-      _bpm = 100;
-      _total = 25;
-    });
-  }
+  Future<void> _startGame() async {
+    if (_beatMap.isEmpty) return;
 
-  void _startGame() {
     _sound.playGameStart();
-    if (!_useDemo && _songLoaded) {
-      _music.play();
-    }
+    _endGameCalled = false;
 
     setState(() {
       _isGameStarted = true;
       _isGameOver = false;
       _score = 0;
-      _lives = 3;
       _perfect = 0;
       _good = 0;
       _miss = 0;
+      _maxCombo = 0;
       _combo = 0;
-      _notes = [];
-      _elapsed = 0;
-      _nextSpawn = 0;
-      _spawned = 0;
+      _activeNotes = [];
+      _nextBeatIndex = 0;
+      _processedBeats = 0;
     });
 
-    _startGameLoop();
+    await _audio.play();
+
+    if (!mounted) return;
+
+    _positionSub?.cancel();
+    _positionSub = _audio.positionStream.listen(_onAudioPosition);
+
+    _stateSub?.cancel();
+    _stateSub = _audio.playerStateStream.listen((state) {
+      if (state.processingState == ProcessingState.completed) {
+        _checkGameEnd(audioCompleted: true);
+      }
+    });
   }
 
-  void _startGameLoop() {
-    _gameTimer = Timer.periodic(Duration(milliseconds: 16), (_) => _tick());
-  }
+  void _onAudioPosition(Duration position) {
+    if (!mounted || _isPaused || _isGameOver || !_isGameStarted) return;
 
-  void _tick() {
-    if (_isPaused || _isGameOver || !_isGameStarted) return;
-    final dt = 0.016;
-    _elapsed += dt;
-
+    final nowMs = position.inMilliseconds;
     final h = MediaQuery.of(context).size.height;
-    final speed = _bpm * 2.2;
-    final beatInterval = 60.0 / _bpm;
-
-    if (_spawned < _total && _elapsed >= _nextSpawn) {
-      final isLong = _rand.nextDouble() < 0.3;
-      _notes.add(_GameNote(y: -80, isLong: isLong));
-      _spawned++;
-      _nextSpawn = _elapsed + beatInterval + (_rand.nextDouble() * 0.2 - 0.1);
-    }
-
-    for (var n in _notes) {
-      if (!n.hit && !n.missed) n.y += speed * dt;
-    }
-
     final hitY = h * 0.60;
-    for (var n in _notes) {
-      if (!n.hit && !n.missed && n.y > hitY + 100) {
-        n.missed = true;
+
+    while (_nextBeatIndex < _beatMap.length) {
+      final beat = _beatMap[_nextBeatIndex];
+      final spawnTimeMs = beat.timestampMs - _travelTimeMs.toInt();
+      if (nowMs >= spawnTimeMs) {
+        _activeNotes.add(_ActiveNote(beat: beat));
+        _nextBeatIndex++;
+      } else {
+        break;
+      }
+    }
+
+    for (var note in List<_ActiveNote>.from(_activeNotes)) {
+      if (note.hit || note.missed) continue;
+
+      final timeUntilHit = note.beat.timestampMs - nowMs;
+      note.y = hitY - (timeUntilHit / _travelTimeMs * hitY);
+
+      if (timeUntilHit < -_hitWindowOk) {
+        note.missed = true;
         _miss++;
-        _lives--;
         _combo = 0;
+        _processedBeats++;
         _sound.playError();
       }
     }
 
-    _notes.removeWhere((n) => n.y > h + 100);
+    _activeNotes.removeWhere((n) => n.y > h + 200);
 
-    if (_lives <= 0 || (_spawned >= _total && _notes.every((n) => n.hit || n.missed))) {
-      _endGame();
-      return;
-    }
-    setState(() {});
+    _checkGameEnd(audioCompleted: false);
+
+    if (mounted) setState(() {});
   }
 
-  void _tap() {
-    if (_isGameOver || !_isGameStarted) return;
-    final h = MediaQuery.of(context).size.height;
-    final hitY = h * 0.60;
+  void _checkGameEnd({required bool audioCompleted}) {
+    if (_endGameCalled) return;
 
-    _GameNote? best;
-    for (var n in _notes) {
-      if (!n.hit && !n.missed && (n.y - hitY).abs() < 150) {
-        if (best == null || (n.y - hitY).abs() < (best.y - hitY).abs()) best = n;
+    final allNotesProcessed = _processedBeats >= _beatMap.length;
+    final noActiveNotes = _activeNotes.every((n) => n.hit || n.missed);
+
+    if (audioCompleted || (allNotesProcessed && noActiveNotes)) {
+      _endGame();
+    }
+  }
+
+  void _onTap() {
+    if (!mounted || _isGameOver || !_isGameStarted || _isPaused) return;
+
+    final nowMs = _audio.position.inMilliseconds;
+
+    _ActiveNote? bestNote;
+    double bestDist = double.infinity;
+
+    for (var note in _activeNotes) {
+      if (note.hit || note.missed) continue;
+
+      final timeDiff = (note.beat.timestampMs - nowMs).abs().toDouble();
+      if (timeDiff < bestDist && timeDiff < _hitWindowOk) {
+        bestDist = timeDiff;
+        bestNote = note;
       }
     }
 
-    if (best != null) {
-      final d = (best.y - hitY).abs();
-      if (d < 30) { _score += 100; _perfect++; _combo++; _sound.playPerfect(); _fb('PERFECT!', AppTheme.accentGreen); }
-      else if (d < 80) { _score += 50; _good++; _combo++; _sound.playBeat(); _fb('GOOD', AppTheme.primaryPink); }
-      else { _score += 20; _good++; _combo++; _sound.playTap(); _fb('OK', AppTheme.warningOrange); }
-      best.hit = true;
+    if (bestNote != null) {
+      bestNote.hit = true;
+      _processedBeats++;
+      _combo++;
+      if (_combo > _maxCombo) _maxCombo = _combo;
+
+      if (bestDist < _hitWindowPerfect) {
+        _score += 100;
+        _perfect++;
+        _sound.playPerfect();
+        _fb('PERFECT!', AppTheme.accentGreen);
+      } else if (bestDist < _hitWindowGood) {
+        _score += 50;
+        _good++;
+        _sound.playBeat();
+        _fb('GOOD', AppTheme.primary);
+      } else {
+        _score += 20;
+        _good++;
+        _sound.playTap();
+        _fb('OK', AppTheme.warningOrange);
+      }
     } else {
       _miss++;
-      _lives--;
       _combo = 0;
       _sound.playError();
       _fb('MISS', AppTheme.riskRed);
@@ -198,6 +229,7 @@ class _MusicRhythmScreenState extends State<MusicRhythmScreen> {
   }
 
   void _fb(String t, Color c) {
+    if (!mounted) return;
     final o = Overlay.of(context);
     final e = OverlayEntry(builder: (_) => Positioned(
       top: MediaQuery.of(context).size.height * 0.35, left: 0, right: 0,
@@ -214,38 +246,74 @@ class _MusicRhythmScreenState extends State<MusicRhythmScreen> {
       )),
     ));
     o.insert(e);
-    Future.delayed(Duration(milliseconds: 500), () => e.remove());
+    Future.delayed(Duration(milliseconds: 500), () {
+      if (e.mounted) e.remove();
+    });
   }
 
   void _endGame() {
-    _gameTimer?.cancel();
-    _music.stop();
+    if (_endGameCalled) return;
+    _endGameCalled = true;
+
+    _positionSub?.cancel();
+    _stateSub?.cancel();
+    _audio.stop();
     _sound.playGameOver();
     if (mounted) context.read<TodoProvider>().onGameCompleted(_score);
 
+    if (!mounted) return;
     setState(() { _isGameOver = true; _isGameStarted = false; });
+
+    final totalNotes = _beatMap.length;
+    final accuracy = totalNotes > 0 ? ((_perfect + _good) / totalNotes * 100).round() : 0;
 
     showDialog(context: context, barrierDismissible: false, builder: (_) => AlertDialog(
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
       content: Column(mainAxisSize: MainAxisSize.min, children: [
         Container(width: 80, height: 80,
-          decoration: BoxDecoration(gradient: LinearGradient(colors: [AppTheme.primaryPink, AppTheme.primaryLightPink]), shape: BoxShape.circle),
+          decoration: BoxDecoration(gradient: LinearGradient(colors: [AppTheme.primary, AppTheme.primaryLight]), shape: BoxShape.circle),
           child: Icon(Icons.music_note_rounded, color: Colors.white, size: 40)),
         SizedBox(height: 16),
         Text('เล่นจบแล้ว!', style: GoogleFonts.sarabun(fontSize: 22, fontWeight: FontWeight.w700)),
-        SizedBox(height: 8),
-        Text('$_score คะแนน', style: GoogleFonts.sarabun(fontSize: 18, color: AppTheme.primaryPink, fontWeight: FontWeight.w700)),
-        SizedBox(height: 4),
-        Text('PERFECT $_perfect | GOOD $_good | MISS $_miss', style: GoogleFonts.sarabun(fontSize: 12, color: AppTheme.textSecondary)),
+        SizedBox(height: 12),
+        _resultRow('คะแนน', '$_score', AppTheme.primary),
+        _resultRow('ความแม่น', '$accuracy%', AppTheme.accentGreen),
+        _resultRow('Max Combo', '$_maxCombo', AppTheme.warningOrange),
+        _resultRow('PERFECT', '$_perfect', AppTheme.accentGreen),
+        _resultRow('GOOD', '$_good', AppTheme.primary),
+        _resultRow('MISS', '$_miss', AppTheme.riskRed),
       ]),
       actions: [
         TextButton(onPressed: () { Navigator.pop(context); Navigator.pop(context); },
-          child: Text('กลับ', style: GoogleFonts.sarabun(color: AppTheme.primaryPink))),
+          child: Text('กลับ', style: GoogleFonts.sarabun(color: AppTheme.primary))),
         ElevatedButton(onPressed: () { Navigator.pop(context); _startGame(); },
-          style: ElevatedButton.styleFrom(backgroundColor: AppTheme.primaryPink),
+          style: ElevatedButton.styleFrom(backgroundColor: AppTheme.primary),
           child: Text('เล่นอีก', style: GoogleFonts.sarabun(color: Colors.white))),
       ],
     ));
+  }
+
+  Widget _resultRow(String label, String value, Color color) {
+    return Padding(
+      padding: EdgeInsets.symmetric(vertical: 4),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Text(label, style: GoogleFonts.sarabun(fontSize: 14, color: AppTheme.textSecondary)),
+          Text(value, style: GoogleFonts.sarabun(fontSize: 16, fontWeight: FontWeight.w700, color: color)),
+        ],
+      ),
+    );
+  }
+
+  void _togglePause() {
+    _sound.playTap();
+    setState(() => _isPaused = !_isPaused);
+    if (_isPaused) {
+      _audio.pause();
+    } else {
+      _audio.play();
+    }
   }
 
   @override
@@ -253,197 +321,173 @@ class _MusicRhythmScreenState extends State<MusicRhythmScreen> {
     return Scaffold(
       backgroundColor: AppTheme.backgroundWhite,
       appBar: AppBar(
-        title: Text('เล่นเพลงจาก YouTube'),
-        backgroundColor: AppTheme.backgroundWhite, foregroundColor: AppTheme.textPrimary, elevation: 0,
+        title: Text(widget.song.title),
+        backgroundColor: AppTheme.backgroundWhite,
+        foregroundColor: AppTheme.textPrimary,
+        elevation: 0,
         actions: [
           if (_isGameStarted && !_isGameOver)
-            IconButton(icon: Icon(_isPaused ? Icons.play_arrow_rounded : Icons.pause_rounded),
-              onPressed: () {
-                setState(() => _isPaused = !_isPaused);
-                if (!_isPaused && !_useDemo) _music.play();
-                else if (!_useDemo) _music.pause();
-              }),
+            IconButton(
+              icon: Icon(_isPaused ? Icons.play_arrow_rounded : Icons.pause_rounded),
+              onPressed: _togglePause,
+            ),
         ],
       ),
-      body: _isGameStarted ? _buildGameView() : _buildSetupView(),
+      body: _isLoading
+          ? Center(child: CircularProgressIndicator(color: AppTheme.primary))
+          : _loadFailed
+              ? _buildErrorView()
+              : _isGameStarted ? _buildGameView() : _buildSetupView(),
+    );
+  }
+
+  Widget _buildErrorView() {
+    return Center(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(Icons.error_outline_rounded, size: 64, color: AppTheme.riskRed),
+          SizedBox(height: 16),
+          Text('ไม่สามารถโหลดเพลงได้', style: GoogleFonts.sarabun(fontSize: 18, fontWeight: FontWeight.w600)),
+          SizedBox(height: 8),
+          Text('ตรวจสอบไฟล์เพลงใน assets/music/', style: GoogleFonts.sarabun(fontSize: 14, color: AppTheme.textSecondary)),
+          SizedBox(height: 24),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(context),
+            style: ElevatedButton.styleFrom(backgroundColor: AppTheme.primary),
+            child: Text('กลับ', style: GoogleFonts.sarabun(color: Colors.white)),
+          ),
+        ],
+      ),
     );
   }
 
   Widget _buildSetupView() {
-    return SingleChildScrollView(
+    final song = widget.song;
+    final noteCount = _beatMap.length;
+    final lastNoteMs = noteCount > 0 ? _beatMap.last.timestampMs : 0;
+    final lastNoteSec = (lastNoteMs / 1000).toStringAsFixed(1);
+
+    return Padding(
       padding: EdgeInsets.all(24),
-      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Container(width: double.infinity, padding: EdgeInsets.all(20),
-          decoration: BoxDecoration(
-            gradient: LinearGradient(colors: [AppTheme.primaryPink, AppTheme.primaryLightPink]),
-            borderRadius: BorderRadius.circular(20)),
-          child: Column(children: [
-            Icon(Icons.library_music_rounded, color: Colors.white, size: 48),
-            SizedBox(height: 12),
-            Text('เล่นเพลงจาก YouTube', style: GoogleFonts.sarabun(fontSize: 22, fontWeight: FontWeight.w700, color: Colors.white)),
-            SizedBox(height: 4),
-            Text('ใส่ลิงก์เพลง แล้วบีบมือตามจังหวะ!', style: GoogleFonts.sarabun(fontSize: 14, color: Colors.white70)),
-          ])),
-        SizedBox(height: 24),
-        Text('YouTube URL', style: GoogleFonts.sarabun(fontSize: 16, fontWeight: FontWeight.w600, color: AppTheme.textPrimary)),
-        SizedBox(height: 8),
-        TextField(
-          controller: _urlController,
-          decoration: InputDecoration(
-            hintText: 'https://youtube.com/watch?v=...',
-            hintStyle: GoogleFonts.sarabun(color: AppTheme.textTertiary),
-            filled: true, fillColor: Colors.white,
-            border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
-            prefixIcon: Icon(Icons.link_rounded, color: AppTheme.primaryPink),
-          ),
-          style: GoogleFonts.sarabun(),
-        ),
-        if (_loadError != null) ...[
-          SizedBox(height: 8),
-          Container(width: double.infinity, padding: EdgeInsets.all(12),
-            decoration: BoxDecoration(color: AppTheme.riskRed.withValues(alpha: 0.1), borderRadius: BorderRadius.circular(8)),
-            child: Row(children: [
-              Icon(Icons.info_outline_rounded, color: AppTheme.riskRed, size: 18),
-              SizedBox(width: 8),
-              Expanded(child: Text(_loadError!, style: GoogleFonts.sarabun(color: AppTheme.riskRed, fontSize: 13))),
-            ])),
-        ],
-        SizedBox(height: 16),
-        Row(children: [
-          Expanded(child: SizedBox(
-            height: 48,
-            child: ElevatedButton(
-              onPressed: _isLoading ? null : _loadSong,
-              style: ElevatedButton.styleFrom(backgroundColor: AppTheme.primaryPink, foregroundColor: Colors.white,
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))),
-              child: _isLoading
-                  ? SizedBox(width: 20, height: 20, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
-                  : Text('โหลดเพลง', style: GoogleFonts.sarabun(fontWeight: FontWeight.w600)),
-            ))),
-          SizedBox(width: 12),
-          Expanded(child: SizedBox(
-            height: 48,
-            child: OutlinedButton(
-              onPressed: _startDemoMode,
-              style: OutlinedButton.styleFrom(foregroundColor: AppTheme.primaryPink,
-                side: BorderSide(color: AppTheme.primaryPink),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))),
-              child: Text('โหมดสาธิต', style: GoogleFonts.sarabun(fontWeight: FontWeight.w600)),
-            ))),
-        ]),
-        if (_songLoaded) ...[
-          SizedBox(height: 24),
-          Container(width: double.infinity, padding: EdgeInsets.all(16),
-            decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(12),
-              boxShadow: [BoxShadow(color: AppTheme.primaryPink.withValues(alpha: 0.1), blurRadius: 8, offset: Offset(0, 2))]),
-            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Row(children: [
-                Icon(_useDemo ? Icons.music_off_rounded : Icons.music_note_rounded,
-                  color: AppTheme.primaryPink, size: 20),
-                SizedBox(width: 8),
-                Expanded(child: Text(
-                  _useDemo ? 'โหมดสาธิต (ไม่มีเสียงเพลง)' : (_music.currentTitle.isNotEmpty ? _music.currentTitle : 'เพลงพร้อมเล่น'),
-                  style: GoogleFonts.sarabun(fontSize: 14, fontWeight: FontWeight.w600),
-                  maxLines: 2, overflow: TextOverflow.ellipsis)),
-              ]),
-              SizedBox(height: 8),
-              Row(children: [
-                _chip('BPM ${_bpm.round()}', AppTheme.primaryPink),
-                SizedBox(width: 8),
-                _chip('$_total โน้ต', AppTheme.accentGreen),
-              ]),
-            ])),
-          SizedBox(height: 16),
-          Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
-              Text('ความเร็ว (BPM)', style: GoogleFonts.sarabun(fontSize: 14, fontWeight: FontWeight.w600)),
-              Text('${_bpm.round()}', style: GoogleFonts.sarabun(fontSize: 14, fontWeight: FontWeight.w700, color: AppTheme.primaryPink)),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            width: double.infinity,
+            padding: EdgeInsets.all(20),
+            decoration: BoxDecoration(
+              gradient: LinearGradient(colors: [AppTheme.primary, AppTheme.primaryLight]),
+              borderRadius: BorderRadius.circular(20),
+            ),
+            child: Column(children: [
+              Icon(Icons.music_note_rounded, color: Colors.white, size: 48),
+              SizedBox(height: 12),
+              Text(song.title, style: GoogleFonts.sarabun(fontSize: 22, fontWeight: FontWeight.w700, color: Colors.white)),
+              SizedBox(height: 4),
+              Text(song.artist, style: GoogleFonts.sarabun(fontSize: 14, color: Colors.white70)),
             ]),
-            Slider(value: _bpm, min: 40, max: 160, activeColor: AppTheme.primaryPink,
-              onChanged: (v) => setState(() { _bpm = v; _music.setBPM(v); })),
-          ]),
-          SizedBox(height: 16),
+          ),
+          SizedBox(height: 24),
+          _infoRow('BPM', '${song.bpm.round()}'),
+          _infoRow('Difficulty', song.difficulty),
+          _infoRow('Duration', '${_audio.duration.inSeconds} วินาที'),
+          _infoRow('Notes', '$noteCount'),
+          _infoRow('Last Note', '$lastNoteSec วินาที'),
+          Spacer(),
           SizedBox(
             width: double.infinity, height: 56,
             child: ElevatedButton(
-              onPressed: _startGame,
-              style: ElevatedButton.styleFrom(backgroundColor: AppTheme.primaryPink, foregroundColor: Colors.white,
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)), elevation: 0),
+              onPressed: _beatMap.isNotEmpty ? _startGame : null,
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppTheme.primary, foregroundColor: Colors.white,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)), elevation: 0,
+              ),
               child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [
-                Icon(Icons.play_arrow_rounded, size: 28), SizedBox(width: 8),
+                Icon(Icons.play_arrow_rounded, size: 28),
+                SizedBox(width: 8),
                 Text('เริ่มเล่น', style: GoogleFonts.sarabun(fontSize: 18, fontWeight: FontWeight.w600)),
-              ]))),
+              ]),
+            ),
+          ),
         ],
-      ]),
+      ),
     );
   }
 
-  Widget _chip(String text, Color color) {
-    return Container(
-      padding: EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-      decoration: BoxDecoration(color: color.withValues(alpha: 0.1), borderRadius: BorderRadius.circular(8)),
-      child: Text(text, style: GoogleFonts.sarabun(fontSize: 12, fontWeight: FontWeight.w600, color: color)));
+  Widget _infoRow(String label, String value) {
+    return Padding(
+      padding: EdgeInsets.symmetric(vertical: 8),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Text(label, style: GoogleFonts.sarabun(fontSize: 15, color: AppTheme.textSecondary)),
+          Text(value, style: GoogleFonts.sarabun(fontSize: 15, fontWeight: FontWeight.w600, color: AppTheme.textPrimary)),
+        ],
+      ),
+    );
   }
 
   Widget _buildGameView() {
     final w = MediaQuery.of(context).size.width;
     final h = MediaQuery.of(context).size.height;
     final hitY = h * 0.60;
+    final totalBeats = _beatMap.length;
+    final progress = totalBeats > 0 ? _processedBeats / totalBeats : 0.0;
 
     return GestureDetector(
-      onTap: _tap, behavior: HitTestBehavior.opaque,
+      onTap: _onTap, behavior: HitTestBehavior.opaque,
       child: Column(children: [
         _buildHeader(),
         Expanded(child: Stack(children: [
           Container(color: AppTheme.backgroundWhite),
           Positioned(left: 0, right: 0, top: hitY - 2, child: Container(height: 4,
             decoration: BoxDecoration(
-              gradient: LinearGradient(colors: [AppTheme.primaryPink.withValues(alpha: 0), AppTheme.primaryPink, AppTheme.primaryPink.withValues(alpha: 0)],
-                begin: Alignment.centerLeft, end: Alignment.centerRight),
-              boxShadow: [BoxShadow(color: AppTheme.primaryPink.withValues(alpha: 0.3), blurRadius: 8)]))),
-          for (var n in _notes.where((n) => !n.hit))
+              gradient: LinearGradient(colors: [AppTheme.primary.withValues(alpha: 0), AppTheme.primary, AppTheme.primary.withValues(alpha: 0)]),
+              boxShadow: [BoxShadow(color: AppTheme.primary.withValues(alpha: 0.3), blurRadius: 8)]))),
+          for (var note in _activeNotes.where((n) => !n.hit))
             Positioned(
-              left: (w - 60) / 2, top: n.y,
+              left: (w - 60) / 2, top: note.y,
               child: Container(
-                width: 60, height: n.isLong ? 120 : 60,
+                width: 60, height: note.beat.isLong ? 120 : 60,
                 decoration: BoxDecoration(
-                  color: n.missed ? AppTheme.riskRed : (n.isLong ? AppTheme.primaryLightPink : AppTheme.primaryPink),
-                  borderRadius: BorderRadius.circular(n.isLong ? 14 : 30),
-                  boxShadow: [BoxShadow(color: (n.isLong ? AppTheme.primaryLightPink : AppTheme.primaryPink).withValues(alpha: 0.4), blurRadius: 12, offset: Offset(0, 4))]),
+                  color: note.missed ? AppTheme.riskRed : (note.beat.isLong ? AppTheme.primaryLight : AppTheme.primary),
+                  borderRadius: BorderRadius.circular(note.beat.isLong ? 14 : 30),
+                  boxShadow: [BoxShadow(color: (note.beat.isLong ? AppTheme.primaryLight : AppTheme.primary).withValues(alpha: 0.4), blurRadius: 12, offset: Offset(0, 4))]),
                 child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
-                  Icon(n.isLong ? Icons.keyboard_double_arrow_down_rounded : Icons.bolt_rounded, color: Colors.white, size: n.isLong ? 24 : 22),
-                  if (n.isLong) ...[SizedBox(height: 2),
-                    Text('ยาว', style: GoogleFonts.sarabun(color: Colors.white, fontSize: 10, fontWeight: FontWeight.w600))],
+                  Icon(note.beat.isLong ? Icons.keyboard_double_arrow_down_rounded : Icons.bolt_rounded, color: Colors.white, size: note.beat.isLong ? 24 : 22),
                 ]))),
           Positioned(bottom: 20, left: 20, right: 20, child: Column(children: [
             ClipRRect(borderRadius: BorderRadius.circular(4), child: LinearProgressIndicator(
-              value: _total > 0 ? _spawned / _total : 0, minHeight: 6,
-              backgroundColor: AppTheme.systemGray6, valueColor: AlwaysStoppedAnimation(AppTheme.primaryPink))),
+              value: progress, minHeight: 6,
+              backgroundColor: AppTheme.systemGray6, valueColor: AlwaysStoppedAnimation(AppTheme.primary))),
             SizedBox(height: 8),
-            Text('$_spawned / $_total', style: GoogleFonts.sarabun(fontSize: 12, color: AppTheme.textSecondary)),
+            Text('$_processedBeats / $totalBeats', style: GoogleFonts.sarabun(fontSize: 12, color: AppTheme.textSecondary)),
           ])),
         ])),
-      ]));
+      ]),
+    );
   }
 
   Widget _buildHeader() {
     return Container(
       padding: EdgeInsets.symmetric(horizontal: 20, vertical: 12),
       decoration: BoxDecoration(color: Theme.of(context).cardColor,
-        boxShadow: [BoxShadow(color: AppTheme.primaryPink.withValues(alpha: 0.08), blurRadius: 8, offset: Offset(0, 2))]),
+        boxShadow: [BoxShadow(color: AppTheme.primary.withValues(alpha: 0.08), blurRadius: 8, offset: Offset(0, 2))]),
       child: Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
         Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           Text('คะแนน', style: GoogleFonts.sarabun(fontSize: 11, color: AppTheme.textSecondary)),
-          Text('$_score', style: GoogleFonts.sarabun(fontSize: 28, fontWeight: FontWeight.w700, color: AppTheme.primaryPink)),
+          Text('$_score', style: GoogleFonts.sarabun(fontSize: 28, fontWeight: FontWeight.w700, color: AppTheme.primary)),
         ]),
-        Row(children: List.generate(3, (i) => Padding(
-          padding: EdgeInsets.symmetric(horizontal: 2),
-          child: Icon(i < _lives ? Icons.favorite_rounded : Icons.favorite_border_rounded,
-            color: i < _lives ? AppTheme.riskRed : AppTheme.textTertiary, size: 24)))),
+        Column(crossAxisAlignment: CrossAxisAlignment.center, children: [
+          Text('Combo', style: GoogleFonts.sarabun(fontSize: 11, color: AppTheme.textSecondary)),
+          Text('$_combo', style: GoogleFonts.sarabun(fontSize: 24, fontWeight: FontWeight.w700, color: AppTheme.textPrimary)),
+        ]),
         Column(crossAxisAlignment: CrossAxisAlignment.end, children: [
-          Text('BPM', style: GoogleFonts.sarabun(fontSize: 11, color: AppTheme.textSecondary)),
-          Text('${_bpm.round()}', style: GoogleFonts.sarabun(fontSize: 24, fontWeight: FontWeight.w700, color: AppTheme.textPrimary)),
+          Text('PERFECT', style: GoogleFonts.sarabun(fontSize: 11, color: AppTheme.accentGreen)),
+          Text('$_perfect', style: GoogleFonts.sarabun(fontSize: 20, fontWeight: FontWeight.w700, color: AppTheme.accentGreen)),
         ]),
-      ]));
+      ]),
+    );
   }
 }

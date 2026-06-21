@@ -3,9 +3,11 @@ import 'package:provider/provider.dart';
 import 'package:grip_strength_monitor/core/theme/app_theme.dart';
 import 'package:grip_strength_monitor/core/constants/app_localizations.dart';
 import 'package:grip_strength_monitor/core/utils/animations.dart';
-import 'package:grip_strength_monitor/services/grip_provider.dart';
+import 'package:grip_strength_monitor/services/connection_provider.dart';
 import 'package:grip_strength_monitor/services/todo_provider.dart';
+import 'package:grip_strength_monitor/services/grip_provider.dart';
 import 'package:grip_strength_monitor/services/sound_service.dart';
+import 'package:grip_strength_monitor/services/websocket_service.dart';
 import 'package:grip_strength_monitor/shared/models/grip_data.dart';
 import 'package:grip_strength_monitor/features/smart_rhythm/smart_rhythm_screen.dart';
 import 'package:grip_strength_monitor/features/measurement/grip_measurement_screen.dart';
@@ -15,7 +17,8 @@ import 'package:grip_strength_monitor/features/report/health_report_screen.dart'
 import 'package:grip_strength_monitor/features/training/guided_training_screen.dart';
 import 'package:grip_strength_monitor/features/achievements/achievements_screen.dart';
 import 'package:grip_strength_monitor/features/game/grip_rhythm_game_screen.dart';
-import 'package:grip_strength_monitor/features/game/music_rhythm_screen.dart';
+import 'package:grip_strength_monitor/features/game/music_selection_screen.dart';
+import 'package:grip_strength_monitor/features/game/widgets/connection_dialog.dart';
 
 class DashboardScreen extends StatefulWidget {
   const DashboardScreen({super.key});
@@ -52,8 +55,8 @@ class _DashboardScreenState extends State<DashboardScreen> with TickerProviderSt
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: AppTheme.backgroundWhite,
-      body: Consumer<GripProvider>(
-        builder: (context, gripProvider, child) {
+      body: Consumer2<GripProvider, ConnectionProvider>(
+        builder: (context, gripProvider, connProvider, child) {
           return SingleChildScrollView(
             padding: EdgeInsets.fromLTRB(20, 12, 20, 20),
             child: Column(
@@ -70,7 +73,7 @@ class _DashboardScreenState extends State<DashboardScreen> with TickerProviderSt
                   delay: 0.1,
                   child: AppAnimations.pulse(
                     controller: _pulseController,
-                    child: _buildStatusBanner(gripProvider),
+                    child: _buildStatusBanner(gripProvider, connProvider),
                   ),
                 ),
                 SizedBox(height: 20),
@@ -89,18 +92,24 @@ class _DashboardScreenState extends State<DashboardScreen> with TickerProviderSt
                 AppAnimations.fadeSlideUp(
                   controller: _animController,
                   delay: 0.4,
-                  child: _buildStartMeasurementButton(context),
+                  child: _buildConnectionSection(context, connProvider),
                 ),
                 SizedBox(height: 20),
                 AppAnimations.fadeSlideUp(
                   controller: _animController,
                   delay: 0.5,
-                  child: _buildQuickActions(context),
+                  child: _buildStartMeasurementButton(context),
                 ),
                 SizedBox(height: 20),
                 AppAnimations.fadeSlideUp(
                   controller: _animController,
                   delay: 0.6,
+                  child: _buildQuickActions(context),
+                ),
+                SizedBox(height: 20),
+                AppAnimations.fadeSlideUp(
+                  controller: _animController,
+                  delay: 0.7,
                   child: _buildProgressSection(context),
                 ),
               ],
@@ -147,8 +156,10 @@ class _DashboardScreenState extends State<DashboardScreen> with TickerProviderSt
     );
   }
 
-  Widget _buildStatusBanner(GripProvider provider) {
-    final statusColor = _getStatusColor(provider.status);
+  Widget _buildStatusBanner(GripProvider gripProvider, ConnectionProvider connProvider) {
+    final statusColor = _getStatusColor(gripProvider.status);
+    final connStatus = connProvider.status;
+
     return Container(
       width: double.infinity,
       padding: EdgeInsets.all(20),
@@ -176,7 +187,7 @@ class _DashboardScreenState extends State<DashboardScreen> with TickerProviderSt
               color: Colors.white.withValues(alpha: 0.25),
               borderRadius: BorderRadius.circular(12),
             ),
-            child: Icon(_getStatusIcon(provider.status), color: Colors.white, size: 24),
+            child: Icon(connStatus == ConnectionStatus.connected ? Icons.wifi_rounded : _getStatusIcon(gripProvider.status), color: Colors.white, size: 24),
           ),
           SizedBox(width: 16),
           Expanded(
@@ -189,7 +200,9 @@ class _DashboardScreenState extends State<DashboardScreen> with TickerProviderSt
                 ),
                 SizedBox(height: 2),
                 Text(
-                  _getStatusText(provider.status),
+                  connStatus == ConnectionStatus.connected
+                    ? 'เชื่อมต่อแล้ว'
+                    : _getStatusText(gripProvider.status),
                   style: TextStyle(
                     color: Colors.white,
                     fontSize: 20,
@@ -207,7 +220,7 @@ class _DashboardScreenState extends State<DashboardScreen> with TickerProviderSt
               borderRadius: BorderRadius.circular(20),
             ),
             child: Text(
-              AppLocalizations.get('viewDetails'),
+              connStatus == ConnectionStatus.connected ? 'Online' : AppLocalizations.get('viewDetails'),
               style: TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.w600),
             ),
           ),
@@ -256,7 +269,7 @@ class _DashboardScreenState extends State<DashboardScreen> with TickerProviderSt
           child: _buildMetricCard(
             context,
             AppLocalizations.get('gripStrength'),
-            '${provider.currentGrip.gripStrength.toStringAsFixed(0)}',
+            '${provider.currentGrip.toStringAsFixed(0)}',
             'kg',
             Icons.fitness_center_rounded,
             AppTheme.primaryBlue,
@@ -393,6 +406,82 @@ class _DashboardScreenState extends State<DashboardScreen> with TickerProviderSt
     );
   }
 
+  Widget _buildConnectionSection(BuildContext context, ConnectionProvider connProvider) {
+    return Container(
+      width: double.infinity,
+      padding: EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: Theme.of(context).cardColor,
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [
+          BoxShadow(color: AppTheme.primaryBlue.withValues(alpha: 0.08), blurRadius: 12, offset: Offset(0, 4)),
+        ],
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 40,
+            height: 40,
+            decoration: BoxDecoration(
+              color: AppTheme.primaryBlue.withValues(alpha: 0.12),
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: Icon(Icons.wifi_rounded, color: AppTheme.primaryBlue, size: 22),
+          ),
+          SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'การเชื่อมต่อ',
+                  style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600, color: AppTheme.textPrimary),
+                ),
+                SizedBox(height: 4),
+                Text(
+                  connProvider.status == ConnectionStatus.connected
+                    ? 'เชื่อมต่อกับ ESP32 แล้ว'
+                    : 'ยังไม่ได้เชื่อมต่ออุปกรณ์',
+                  style: TextStyle(fontSize: 13, color: AppTheme.textSecondary),
+                ),
+              ],
+            ),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              SoundService().playButton();
+              _showConnectionDialog(context);
+            },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppTheme.primaryBlue,
+              foregroundColor: Colors.white,
+              elevation: 0,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+              padding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            ),
+            child: Text(
+              connProvider.status == ConnectionStatus.connected ? 'เปลี่ยน IP' : 'เชื่อมต่อ',
+              style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showConnectionDialog(BuildContext context) {
+    final connProvider = Provider.of<ConnectionProvider>(context, listen: false);
+    final wsService = Provider.of<WebSocketService>(context, listen: false);
+
+    showDialog(
+      context: context,
+      builder: (context) => ConnectionDialog(
+        connProvider: connProvider,
+        wsService: wsService,
+      ),
+    );
+  }
+
   Widget _buildStartMeasurementButton(BuildContext context) {
     return Container(
       decoration: BoxDecoration(
@@ -415,6 +504,7 @@ class _DashboardScreenState extends State<DashboardScreen> with TickerProviderSt
         child: InkWell(
           borderRadius: BorderRadius.circular(14),
           onTap: () {
+            SoundService().playButton();
             Navigator.push(
               context,
               PageRouteBuilder(
@@ -545,7 +635,7 @@ class _DashboardScreenState extends State<DashboardScreen> with TickerProviderSt
                 Icons.library_music_rounded,
                 'เล่นเพลง',
                 AppTheme.accentGreen,
-                () => Navigator.push(context, MaterialPageRoute(builder: (_) => MusicRhythmScreen())),
+                () => Navigator.push(context, MaterialPageRoute(builder: (_) => MusicSelectionScreen())),
               ),
             ],
           ),

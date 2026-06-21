@@ -6,6 +6,7 @@ import 'package:grip_strength_monitor/features/dashboard/dashboard_screen.dart';
 import 'package:grip_strength_monitor/features/statistics/statistics_screen.dart';
 import 'package:grip_strength_monitor/features/goals/goals_screen.dart';
 import 'package:grip_strength_monitor/features/profile/profile_screen.dart';
+import 'package:grip_strength_monitor/services/sound_service.dart';
 
 class MainNavigation extends StatefulWidget {
   const MainNavigation({super.key});
@@ -16,6 +17,7 @@ class MainNavigation extends StatefulWidget {
 
 class _MainNavigationState extends State<MainNavigation> {
   int _currentIndex = 0;
+  final _sound = SoundService();
 
   final List<Widget> _screens = [
     DashboardScreen(),
@@ -51,7 +53,7 @@ class _MainNavigationState extends State<MainNavigation> {
         child: NavigationBar(
           selectedIndex: _currentIndex,
           onDestinationSelected: (index) {
-            HapticFeedback.selectionClick();
+            _sound.playNavigation();
             setState(() => _currentIndex = index);
           },
           backgroundColor: Colors.transparent,

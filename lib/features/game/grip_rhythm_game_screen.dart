@@ -19,9 +19,9 @@ class GripRhythmGameScreen extends StatefulWidget {
 class _GameNote {
   double y;
   final bool isLong;
-  bool hit;
-  bool missed;
-  _GameNote({required this.y, required this.isLong, this.hit = false, this.missed = false});
+  bool hit = false;
+  bool missed = false;
+  _GameNote({required this.y, required this.isLong});
 }
 
 class _GripRhythmGameScreenState extends State<GripRhythmGameScreen> {

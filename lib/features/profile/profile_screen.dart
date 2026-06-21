@@ -1,36 +1,43 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:provider/provider.dart';
 import 'package:grip_strength_monitor/core/theme/app_theme.dart';
 import 'package:grip_strength_monitor/features/profile/settings_screen.dart';
 import 'package:grip_strength_monitor/features/streak/streak_calendar_screen.dart';
 import 'package:grip_strength_monitor/features/history/training_history_screen.dart';
 import 'package:grip_strength_monitor/features/report/health_report_screen.dart';
 import 'package:grip_strength_monitor/features/achievements/achievements_screen.dart';
+import 'package:grip_strength_monitor/services/user_profile_provider.dart';
+import 'package:grip_strength_monitor/services/sound_service.dart';
 
 class ProfileScreen extends StatelessWidget {
   const ProfileScreen({super.key});
 
   @override
   Widget build(BuildContext context) {
-    return SingleChildScrollView(
-      padding: EdgeInsets.fromLTRB(20, 12, 20, 20),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          _buildProfileHeader(),
-          SizedBox(height: 20),
-          _buildUserInfoCard(context),
-          SizedBox(height: 20),
-          _buildFeatureLinks(context),
-          SizedBox(height: 20),
-          _buildSettingsButton(context),
-          SizedBox(height: 20),
-        ],
-      ),
+    return Consumer<UserProfileProvider>(
+      builder: (context, profile, child) {
+        return SingleChildScrollView(
+          padding: EdgeInsets.fromLTRB(20, 12, 20, 20),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              _buildProfileHeader(profile),
+              SizedBox(height: 20),
+              _buildUserInfoCard(context, profile),
+              SizedBox(height: 20),
+              _buildFeatureLinks(context),
+              SizedBox(height: 20),
+              _buildSettingsButton(context),
+              SizedBox(height: 20),
+            ],
+          ),
+        );
+      },
     );
   }
 
-  Widget _buildProfileHeader() {
+  Widget _buildProfileHeader(UserProfileProvider profile) {
     return Container(
       width: double.infinity,
       padding: EdgeInsets.all(24),
@@ -56,15 +63,15 @@ class ProfileScreen extends StatelessWidget {
             child: Icon(Icons.person_rounded, size: 44, color: Colors.white),
           ),
           SizedBox(height: 16),
-          Text('สมชาย ใจดี', style: GoogleFonts.sarabun(fontSize: 22, fontWeight: FontWeight.w700, color: Colors.white)),
+          Text(profile.name, style: GoogleFonts.sarabun(fontSize: 22, fontWeight: FontWeight.w700, color: Colors.white)),
           SizedBox(height: 4),
-          Text('เป็นสมาชิกตั้งแต่ ม.ค. 2024', style: GoogleFonts.sarabun(fontSize: 14, color: Colors.white70)),
+          Text('เป็นสมาชิกตั้งแต่ ${profile.memberSince}', style: GoogleFonts.sarabun(fontSize: 14, color: Colors.white70)),
         ],
       ),
     );
   }
 
-  Widget _buildUserInfoCard(BuildContext context) {
+  Widget _buildUserInfoCard(BuildContext context, UserProfileProvider profile) {
     return Container(
       width: double.infinity,
       padding: EdgeInsets.all(16),
@@ -75,13 +82,13 @@ class ProfileScreen extends StatelessWidget {
       ),
       child: Column(
         children: [
-          _buildInfoRow(Icons.person_outline_rounded, 'ชื่อ', 'สมชาย ใจดี'),
+          _buildInfoRow(Icons.person_outline_rounded, 'ชื่อ', profile.name),
           Divider(height: 1, indent: 44),
-          _buildInfoRow(Icons.cake_outlined, 'อายุ', '72 ปี'),
+          _buildInfoRow(Icons.cake_outlined, 'อายุ', '${profile.age} ปี'),
           Divider(height: 1, indent: 44),
-          _buildInfoRow(Icons.calendar_today_rounded, 'สมาชิกตั้งแต่', 'มกราคม 2024'),
+          _buildInfoRow(Icons.calendar_today_rounded, 'สมาชิกตั้งแต่', profile.memberSince),
           Divider(height: 1, indent: 44),
-          _buildInfoRow(Icons.fitness_center_rounded, 'เซสชันทั้งหมด', '156 เซสชัน'),
+          _buildInfoRow(Icons.fitness_center_rounded, 'เซสชันทั้งหมด', '${profile.totalSessions} เซสชัน'),
         ],
       ),
     );
@@ -144,7 +151,10 @@ class ProfileScreen extends StatelessWidget {
     return Material(
       color: Colors.transparent,
       child: InkWell(
-        onTap: onTap,
+        onTap: () {
+          SoundService().playButton();
+          onTap();
+        },
         borderRadius: BorderRadius.circular(10),
         child: Padding(
           padding: EdgeInsets.symmetric(vertical: 12, horizontal: 8),
@@ -170,7 +180,10 @@ class ProfileScreen extends StatelessWidget {
       color: Theme.of(context).cardColor,
       borderRadius: BorderRadius.circular(16),
       child: InkWell(
-        onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => SettingsScreen())),
+        onTap: () {
+          SoundService().playButton();
+          Navigator.push(context, MaterialPageRoute(builder: (_) => SettingsScreen()));
+        },
         borderRadius: BorderRadius.circular(16),
         child: Container(
           width: double.infinity,

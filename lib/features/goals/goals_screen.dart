@@ -4,6 +4,7 @@ import 'package:grip_strength_monitor/core/theme/app_theme.dart';
 import 'package:grip_strength_monitor/core/constants/app_localizations.dart';
 import 'package:grip_strength_monitor/core/utils/animations.dart';
 import 'package:grip_strength_monitor/services/todo_provider.dart';
+import 'package:grip_strength_monitor/services/sound_service.dart';
 import 'package:grip_strength_monitor/shared/models/todo.dart';
 
 class GoalsScreen extends StatefulWidget {
@@ -61,12 +62,12 @@ class _GoalsScreenState extends State<GoalsScreen> with TickerProviderStateMixin
       padding: EdgeInsets.all(24),
       decoration: BoxDecoration(
         gradient: LinearGradient(
-          colors: [Color(0xFF5856D6), Color(0xFF7B79E8)],
+          colors: [AppTheme.primary, AppTheme.primaryLight],
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
         ),
         borderRadius: BorderRadius.circular(20),
-        boxShadow: [BoxShadow(color: Color(0xFF5856D6).withValues(alpha: 0.3), blurRadius: 20, offset: Offset(0, 10))],
+        boxShadow: [BoxShadow(color: AppTheme.primary.withValues(alpha: 0.3), blurRadius: 20, offset: Offset(0, 10))],
       ),
       child: Column(
         children: [
@@ -210,7 +211,10 @@ class _GoalsScreenState extends State<GoalsScreen> with TickerProviderStateMixin
 
   Widget _buildTaskItem(Todo todo, TodoProvider provider) {
     return GestureDetector(
-      onTap: () => provider.toggleTodo(todo.id),
+      onTap: () {
+        SoundService().playTap();
+        provider.toggleTodo(todo.id);
+      },
       child: AnimatedContainer(
         duration: Duration(milliseconds: 300),
         padding: EdgeInsets.symmetric(vertical: 12),

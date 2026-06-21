@@ -1,8 +1,10 @@
+import 'package:flutter/material.dart';
+
 class Achievement {
   final String id;
   final String title;
   final String description;
-  final String icon;
+  final IconData icon;
   final bool isUnlocked;
   final DateTime? unlockedAt;
   final int requirement;
@@ -15,19 +17,36 @@ class Achievement {
     required this.icon,
     this.isUnlocked = false,
     this.unlockedAt,
-    required this.requirement,
+    this.requirement = 1,
     this.currentProgress = 0,
   });
+
+  Achievement copyWith({
+    bool? isUnlocked,
+    int? currentProgress,
+    DateTime? unlockedAt,
+  }) {
+    return Achievement(
+      id: id,
+      title: title,
+      description: description,
+      icon: icon,
+      isUnlocked: isUnlocked ?? this.isUnlocked,
+      unlockedAt: unlockedAt ?? this.unlockedAt,
+      requirement: requirement,
+      currentProgress: currentProgress ?? this.currentProgress,
+    );
+  }
 
   factory Achievement.fromJson(Map<String, dynamic> json) {
     return Achievement(
       id: json['id'],
       title: json['title'],
       description: json['description'],
-      icon: json['icon'],
+      icon: Icons.star_rounded,
       isUnlocked: json['isUnlocked'] ?? false,
       unlockedAt: json['unlockedAt'] != null ? DateTime.parse(json['unlockedAt']) : null,
-      requirement: json['requirement'],
+      requirement: json['requirement'] ?? 1,
       currentProgress: json['currentProgress'] ?? 0,
     );
   }
@@ -37,7 +56,6 @@ class Achievement {
       'id': id,
       'title': title,
       'description': description,
-      'icon': icon,
       'isUnlocked': isUnlocked,
       'unlockedAt': unlockedAt?.toIso8601String(),
       'requirement': requirement,
