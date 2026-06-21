@@ -9,6 +9,11 @@ import 'package:grip_strength_monitor/features/game/services/audio_manager.dart'
 import 'package:grip_strength_monitor/features/game/services/beatmap_generator.dart';
 import 'package:grip_strength_monitor/services/sound_service.dart';
 import 'package:grip_strength_monitor/services/todo_provider.dart';
+import 'package:grip_strength_monitor/services/grip_provider.dart';
+import 'package:grip_strength_monitor/services/history_provider.dart';
+import 'package:grip_strength_monitor/services/user_profile_provider.dart';
+import 'package:grip_strength_monitor/services/grip_trigger_service.dart';
+import 'package:grip_strength_monitor/shared/models/training_session.dart';
 
 class MusicRhythmScreen extends StatefulWidget {
   final SongData song;
@@ -30,8 +35,10 @@ class _ActiveNote {
 class _MusicRhythmScreenState extends State<MusicRhythmScreen> {
   final SoundService _sound = SoundService();
   final AudioManager _audio = AudioManager();
+  final GripTriggerService _trigger = GripTriggerService();
   StreamSubscription<Duration>? _positionSub;
   StreamSubscription<PlayerState>? _stateSub;
+  StreamSubscription? _hitSub;
   bool _endGameCalled = false;
 
   bool _isGameStarted = false;
@@ -46,11 +53,15 @@ class _MusicRhythmScreenState extends State<MusicRhythmScreen> {
   int _miss = 0;
   int _maxCombo = 0;
   int _combo = 0;
+  int _maxGrip = 0;
 
   List<_ActiveNote> _activeNotes = [];
   List<BeatNote> _beatMap = [];
   int _nextBeatIndex = 0;
   int _processedBeats = 0;
+  DateTime? _startTime;
+  double _cachedHeight = 0;
+  VoidCallback? _gripListener;
 
   static const double _travelTimeMs = 2000;
   static const double _hitWindowPerfect = 50;
@@ -67,8 +78,20 @@ class _MusicRhythmScreenState extends State<MusicRhythmScreen> {
   void dispose() {
     _positionSub?.cancel();
     _stateSub?.cancel();
+    _hitSub?.cancel();
+    _removeGripListener();
     _audio.stop();
+    _trigger.reset();
     super.dispose();
+  }
+
+  void _removeGripListener() {
+    if (_gripListener != null && mounted) {
+      try {
+        context.read<GripProvider>().removeListener(_gripListener!);
+      } catch (_) {}
+      _gripListener = null;
+    }
   }
 
   Future<void> _loadSong() async {
@@ -99,6 +122,8 @@ class _MusicRhythmScreenState extends State<MusicRhythmScreen> {
 
     _sound.playGameStart();
     _endGameCalled = false;
+    _trigger.reset();
+    _removeGripListener();
 
     setState(() {
       _isGameStarted = true;
@@ -109,13 +134,26 @@ class _MusicRhythmScreenState extends State<MusicRhythmScreen> {
       _miss = 0;
       _maxCombo = 0;
       _combo = 0;
+      _maxGrip = 0;
       _activeNotes = [];
       _nextBeatIndex = 0;
       _processedBeats = 0;
+      _startTime = DateTime.now();
     });
 
-    await _audio.play();
+    _cachedHeight = MediaQuery.of(context).size.height;
 
+    _hitSub?.cancel();
+    _hitSub = _trigger.onHit.listen((_) => _onGripHit());
+
+    _gripListener = () {
+      final grip = context.read<GripProvider>().currentGrip;
+      _trigger.processGrip(grip);
+      if (grip.round() > _maxGrip) _maxGrip = grip.round();
+    };
+    context.read<GripProvider>().addListener(_gripListener!);
+
+    await _audio.play();
     if (!mounted) return;
 
     _positionSub?.cancel();
@@ -129,11 +167,57 @@ class _MusicRhythmScreenState extends State<MusicRhythmScreen> {
     });
   }
 
+  void _onGripHit() {
+    if (!_isGameStarted || _isGameOver || _isPaused) return;
+    final nowMs = _audio.position.inMilliseconds;
+
+    _ActiveNote? bestNote;
+    double bestDist = double.infinity;
+
+    for (var note in _activeNotes) {
+      if (note.hit || note.missed) continue;
+      final timeDiff = (note.beat.timestampMs - nowMs).abs().toDouble();
+      if (timeDiff < bestDist && timeDiff < _hitWindowOk) {
+        bestDist = timeDiff;
+        bestNote = note;
+      }
+    }
+
+    if (bestNote != null) {
+      bestNote.hit = true;
+      _processedBeats++;
+      _combo++;
+      if (_combo > _maxCombo) _maxCombo = _combo;
+
+      if (bestDist < _hitWindowPerfect) {
+        _score += 100;
+        _perfect++;
+        _sound.playPerfect();
+        _fb('PERFECT!', AppTheme.accentGreen);
+      } else if (bestDist < _hitWindowGood) {
+        _score += 50;
+        _good++;
+        _sound.playGood();
+        _fb('GOOD', AppTheme.primary);
+      } else {
+        _score += 20;
+        _good++;
+        _sound.playTileHit();
+        _fb('OK', AppTheme.warningOrange);
+      }
+    } else {
+      _miss++;
+      _combo = 0;
+      _sound.playError();
+      _fb('MISS', AppTheme.riskRed);
+    }
+  }
+
   void _onAudioPosition(Duration position) {
     if (!mounted || _isPaused || _isGameOver || !_isGameStarted) return;
 
     final nowMs = position.inMilliseconds;
-    final h = MediaQuery.of(context).size.height;
+    final h = _cachedHeight;
     final hitY = h * 0.60;
 
     while (_nextBeatIndex < _beatMap.length) {
@@ -147,7 +231,7 @@ class _MusicRhythmScreenState extends State<MusicRhythmScreen> {
       }
     }
 
-    for (var note in List<_ActiveNote>.from(_activeNotes)) {
+    for (var note in _activeNotes) {
       if (note.hit || note.missed) continue;
 
       final timeUntilHit = note.beat.timestampMs - nowMs;
@@ -180,65 +264,17 @@ class _MusicRhythmScreenState extends State<MusicRhythmScreen> {
     }
   }
 
-  void _onTap() {
-    if (!mounted || _isGameOver || !_isGameStarted || _isPaused) return;
-
-    final nowMs = _audio.position.inMilliseconds;
-
-    _ActiveNote? bestNote;
-    double bestDist = double.infinity;
-
-    for (var note in _activeNotes) {
-      if (note.hit || note.missed) continue;
-
-      final timeDiff = (note.beat.timestampMs - nowMs).abs().toDouble();
-      if (timeDiff < bestDist && timeDiff < _hitWindowOk) {
-        bestDist = timeDiff;
-        bestNote = note;
-      }
-    }
-
-    if (bestNote != null) {
-      bestNote.hit = true;
-      _processedBeats++;
-      _combo++;
-      if (_combo > _maxCombo) _maxCombo = _combo;
-
-      if (bestDist < _hitWindowPerfect) {
-        _score += 100;
-        _perfect++;
-        _sound.playPerfect();
-        _fb('PERFECT!', AppTheme.accentGreen);
-      } else if (bestDist < _hitWindowGood) {
-        _score += 50;
-        _good++;
-        _sound.playBeat();
-        _fb('GOOD', AppTheme.primary);
-      } else {
-        _score += 20;
-        _good++;
-        _sound.playTap();
-        _fb('OK', AppTheme.warningOrange);
-      }
-    } else {
-      _miss++;
-      _combo = 0;
-      _sound.playError();
-      _fb('MISS', AppTheme.riskRed);
-    }
-  }
-
   void _fb(String t, Color c) {
     if (!mounted) return;
     final o = Overlay.of(context);
     final e = OverlayEntry(builder: (_) => Positioned(
-      top: MediaQuery.of(context).size.height * 0.35, left: 0, right: 0,
+      top: _cachedHeight * 0.35, left: 0, right: 0,
       child: Center(child: TweenAnimationBuilder<double>(
         tween: Tween(begin: 1.0, end: 0.0), duration: Duration(milliseconds: 500),
         builder: (_, v, __) => Transform.translate(
           offset: Offset(0, -20 * (1 - v)),
           child: Opacity(opacity: v, child: Container(
-            padding: EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
             decoration: BoxDecoration(color: c, borderRadius: BorderRadius.circular(10)),
             child: Text(t, style: GoogleFonts.sarabun(fontSize: 20, fontWeight: FontWeight.w700, color: Colors.white)),
           )),
@@ -257,9 +293,29 @@ class _MusicRhythmScreenState extends State<MusicRhythmScreen> {
 
     _positionSub?.cancel();
     _stateSub?.cancel();
+    _hitSub?.cancel();
+    _removeGripListener();
     _audio.stop();
     _sound.playGameOver();
-    if (mounted) context.read<TodoProvider>().onGameCompleted(_score);
+
+    final durationSeconds = _startTime != null
+        ? DateTime.now().difference(_startTime!).inSeconds
+        : 0;
+
+    final session = TrainingSession(
+      id: DateTime.now().millisecondsSinceEpoch.toString(),
+      date: DateTime.now(),
+      type: 'music_rhythm',
+      gripStrength: _maxGrip.toDouble(),
+      maxGrip: _maxGrip.toDouble(),
+      minGrip: 0,
+      durationSeconds: durationSeconds,
+      roundCount: _perfect + _good + _miss,
+      status: 'completed',
+    );
+    context.read<HistoryProvider>().addSession(session);
+    context.read<TodoProvider>().onGameCompleted(_score);
+    context.read<UserProfileProvider>().incrementSessions();
 
     if (!mounted) return;
     setState(() { _isGameOver = true; _isGameStarted = false; });
@@ -295,7 +351,7 @@ class _MusicRhythmScreenState extends State<MusicRhythmScreen> {
 
   Widget _resultRow(String label, String value, Color color) {
     return Padding(
-      padding: EdgeInsets.symmetric(vertical: 4),
+      padding: const EdgeInsets.symmetric(vertical: 4),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
@@ -369,13 +425,13 @@ class _MusicRhythmScreenState extends State<MusicRhythmScreen> {
     final lastNoteSec = (lastNoteMs / 1000).toStringAsFixed(1);
 
     return Padding(
-      padding: EdgeInsets.all(24),
+      padding: const EdgeInsets.all(24),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Container(
             width: double.infinity,
-            padding: EdgeInsets.all(20),
+            padding: const EdgeInsets.all(20),
             decoration: BoxDecoration(
               gradient: LinearGradient(colors: [AppTheme.primary, AppTheme.primaryLight]),
               borderRadius: BorderRadius.circular(20),
@@ -394,6 +450,19 @@ class _MusicRhythmScreenState extends State<MusicRhythmScreen> {
           _infoRow('Duration', '${_audio.duration.inSeconds} วินาที'),
           _infoRow('Notes', '$noteCount'),
           _infoRow('Last Note', '$lastNoteSec วินาที'),
+          SizedBox(height: 12),
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: AppTheme.primary.withValues(alpha: 0.1),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+              Icon(Icons.fitness_center_rounded, color: AppTheme.primary, size: 20),
+              SizedBox(width: 8),
+              Text('บีบมือ的力量 > 2 กก. เพื่อตีโน้ต', style: GoogleFonts.sarabun(fontSize: 13, color: AppTheme.primary, fontWeight: FontWeight.w600)),
+            ]),
+          ),
           Spacer(),
           SizedBox(
             width: double.infinity, height: 56,
@@ -417,7 +486,7 @@ class _MusicRhythmScreenState extends State<MusicRhythmScreen> {
 
   Widget _infoRow(String label, String value) {
     return Padding(
-      padding: EdgeInsets.symmetric(vertical: 8),
+      padding: const EdgeInsets.symmetric(vertical: 8),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
@@ -430,48 +499,43 @@ class _MusicRhythmScreenState extends State<MusicRhythmScreen> {
 
   Widget _buildGameView() {
     final w = MediaQuery.of(context).size.width;
-    final h = MediaQuery.of(context).size.height;
-    final hitY = h * 0.60;
+    final hitY = _cachedHeight * 0.60;
     final totalBeats = _beatMap.length;
     final progress = totalBeats > 0 ? _processedBeats / totalBeats : 0.0;
 
-    return GestureDetector(
-      onTap: _onTap, behavior: HitTestBehavior.opaque,
-      child: Column(children: [
-        _buildHeader(),
-        Expanded(child: Stack(children: [
-          Container(color: AppTheme.backgroundWhite),
-          Positioned(left: 0, right: 0, top: hitY - 2, child: Container(height: 4,
-            decoration: BoxDecoration(
-              gradient: LinearGradient(colors: [AppTheme.primary.withValues(alpha: 0), AppTheme.primary, AppTheme.primary.withValues(alpha: 0)]),
-              boxShadow: [BoxShadow(color: AppTheme.primary.withValues(alpha: 0.3), blurRadius: 8)]))),
-          for (var note in _activeNotes.where((n) => !n.hit))
-            Positioned(
-              left: (w - 60) / 2, top: note.y,
-              child: Container(
-                width: 60, height: note.beat.isLong ? 120 : 60,
-                decoration: BoxDecoration(
-                  color: note.missed ? AppTheme.riskRed : (note.beat.isLong ? AppTheme.primaryLight : AppTheme.primary),
-                  borderRadius: BorderRadius.circular(note.beat.isLong ? 14 : 30),
-                  boxShadow: [BoxShadow(color: (note.beat.isLong ? AppTheme.primaryLight : AppTheme.primary).withValues(alpha: 0.4), blurRadius: 12, offset: Offset(0, 4))]),
-                child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
-                  Icon(note.beat.isLong ? Icons.keyboard_double_arrow_down_rounded : Icons.bolt_rounded, color: Colors.white, size: note.beat.isLong ? 24 : 22),
-                ]))),
-          Positioned(bottom: 20, left: 20, right: 20, child: Column(children: [
-            ClipRRect(borderRadius: BorderRadius.circular(4), child: LinearProgressIndicator(
-              value: progress, minHeight: 6,
-              backgroundColor: AppTheme.systemGray6, valueColor: AlwaysStoppedAnimation(AppTheme.primary))),
-            SizedBox(height: 8),
-            Text('$_processedBeats / $totalBeats', style: GoogleFonts.sarabun(fontSize: 12, color: AppTheme.textSecondary)),
-          ])),
+    return Column(children: [
+      _buildHeader(),
+      Expanded(child: Stack(children: [
+        Container(color: AppTheme.backgroundWhite),
+        Positioned(left: 0, right: 0, top: hitY - 2, child: Container(height: 4,
+          decoration: BoxDecoration(
+            gradient: LinearGradient(colors: [AppTheme.primary.withValues(alpha: 0), AppTheme.primary, AppTheme.primary.withValues(alpha: 0)]),
+            boxShadow: [BoxShadow(color: AppTheme.primary.withValues(alpha: 0.3), blurRadius: 8)]))),
+        for (var note in _activeNotes.where((n) => !n.hit))
+          Positioned(
+            left: (w - 60) / 2, top: note.y,
+            child: Container(
+              width: 60, height: 60,
+              decoration: BoxDecoration(
+                color: note.missed ? AppTheme.riskRed : AppTheme.primary,
+                borderRadius: BorderRadius.circular(30),
+                boxShadow: [BoxShadow(color: AppTheme.primary.withValues(alpha: 0.4), blurRadius: 12, offset: Offset(0, 4))]),
+              child: Icon(Icons.bolt_rounded, color: Colors.white, size: 22),
+            )),
+        Positioned(bottom: 20, left: 20, right: 20, child: Column(children: [
+          ClipRRect(borderRadius: BorderRadius.circular(4), child: LinearProgressIndicator(
+            value: progress, minHeight: 6,
+            backgroundColor: AppTheme.systemGray6, valueColor: AlwaysStoppedAnimation(AppTheme.primary))),
+          SizedBox(height: 8),
+          Text('$_processedBeats / $totalBeats', style: GoogleFonts.sarabun(fontSize: 12, color: AppTheme.textSecondary)),
         ])),
-      ]),
-    );
+      ])),
+    ]);
   }
 
   Widget _buildHeader() {
     return Container(
-      padding: EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
       decoration: BoxDecoration(color: Theme.of(context).cardColor,
         boxShadow: [BoxShadow(color: AppTheme.primary.withValues(alpha: 0.08), blurRadius: 8, offset: Offset(0, 2))]),
       child: Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [

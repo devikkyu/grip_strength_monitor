@@ -8,6 +8,7 @@ import 'package:grip_strength_monitor/core/constants/app_localizations.dart';
 import 'package:grip_strength_monitor/services/sound_service.dart';
 import 'package:grip_strength_monitor/services/todo_provider.dart';
 import 'package:grip_strength_monitor/services/history_provider.dart';
+import 'package:grip_strength_monitor/services/grip_provider.dart';
 import 'package:grip_strength_monitor/shared/models/training_session.dart';
 
 class GuidedTrainingScreen extends StatefulWidget {
@@ -35,6 +36,12 @@ class _GuidedTrainingScreenState extends State<GuidedTrainingScreen>
   Timer? _timer;
   Timer? _metronomeTimer;
   int _metronomeCount = 0;
+  VoidCallback? _gripListener;
+
+  List<double> _gripHistory = [];
+  double _maxGrip = 0;
+  double _avgGrip = 0;
+  DateTime? _startTime;
 
   final _phases = [
     {'name': 'วอร์มอัพ', 'icon': Icons.wb_sunny_rounded, 'color': Color(0xFFFFB366), 'reps': 5, 'duration': 30, 'instruction': 'บีบมือเบาๆ ตามจังหวะ'},
@@ -46,6 +53,9 @@ class _GuidedTrainingScreenState extends State<GuidedTrainingScreen>
   void dispose() {
     _timer?.cancel();
     _metronomeTimer?.cancel();
+    if (_gripListener != null && mounted) {
+      context.read<GripProvider>().removeListener(_gripListener!);
+    }
     super.dispose();
   }
 
@@ -65,10 +75,37 @@ class _GuidedTrainingScreenState extends State<GuidedTrainingScreen>
       _elapsed = 0;
       _bpm = bpmBase;
       _metronomeCount = 0;
+      _gripHistory = [];
+      _maxGrip = 0;
+      _avgGrip = 0;
+      _startTime = DateTime.now();
     });
 
     _startMetronome();
-    _startTimer();
+    _startGripTracking();
+  }
+
+  void _startGripTracking() {
+    final gripProvider = context.read<GripProvider>();
+    _gripListener = () {
+      final grip = gripProvider.currentGrip;
+      if (grip > 0) {
+        _gripHistory.add(grip);
+        if (grip > _maxGrip) _maxGrip = grip;
+      }
+    };
+    gripProvider.addListener(_gripListener!);
+
+    _timer?.cancel();
+    _timer = Timer.periodic(Duration(milliseconds: 100), (timer) {
+      if (_isPaused || !_isTraining) return;
+      _elapsed += 0.1;
+
+      if (_elapsed >= _phaseDuration) {
+        _nextRep();
+      }
+      setState(() {});
+    });
   }
 
   void _startMetronome() {
@@ -85,18 +122,6 @@ class _GuidedTrainingScreenState extends State<GuidedTrainingScreen>
           if (mounted) setState(() => _isOnBeat = false);
         });
       }
-    });
-  }
-
-  void _startTimer() {
-    _timer = Timer.periodic(Duration(milliseconds: 100), (timer) {
-      if (_isPaused || !_isTraining) return;
-      _elapsed += 0.1;
-
-      if (_elapsed >= _phaseDuration) {
-        _nextRep();
-      }
-      setState(() {});
     });
   }
 
@@ -138,6 +163,14 @@ class _GuidedTrainingScreenState extends State<GuidedTrainingScreen>
     _metronomeTimer?.cancel();
     _sound.playGameOver();
 
+    final durationSeconds = _startTime != null
+        ? DateTime.now().difference(_startTime!).inSeconds
+        : _elapsed.toInt();
+
+    if (_gripHistory.isNotEmpty) {
+      _avgGrip = _gripHistory.reduce((a, b) => a + b) / _gripHistory.length;
+    }
+
     if (mounted) {
       context.read<TodoProvider>().onAudioRhythm();
       context.read<TodoProvider>().onConsecutiveTraining();
@@ -145,10 +178,10 @@ class _GuidedTrainingScreenState extends State<GuidedTrainingScreen>
         id: DateTime.now().millisecondsSinceEpoch.toString(),
         date: DateTime.now(),
         type: 'guided_training',
-        gripStrength: 0,
-        maxGrip: 0,
-        minGrip: 0,
-        durationSeconds: _elapsed.toInt(),
+        gripStrength: _avgGrip,
+        maxGrip: _maxGrip,
+        minGrip: _gripHistory.isNotEmpty ? _gripHistory.reduce((a, b) => a < b ? a : b) : 0,
+        durationSeconds: durationSeconds,
         roundCount: _currentRep,
         status: 'completed',
       ));
@@ -178,6 +211,11 @@ class _GuidedTrainingScreenState extends State<GuidedTrainingScreen>
             Text('ฝึกเสร็จแล้ว!', style: GoogleFonts.sarabun(fontSize: 22, fontWeight: FontWeight.w700)),
             SizedBox(height: 8),
             Text('ทำได้ดีมาก ฝึกต่อไปเรื่อยๆ', style: GoogleFonts.sarabun(fontSize: 14, color: AppTheme.textSecondary)),
+            if (_gripHistory.isNotEmpty) ...[
+              SizedBox(height: 12),
+              Text('แรงบีบเฉลี่ย: ${_avgGrip.toStringAsFixed(1)} kg', style: GoogleFonts.sarabun(fontSize: 14, color: AppTheme.primary)),
+              Text('แรงบีบสูงสุด: ${_maxGrip.toStringAsFixed(1)} kg', style: GoogleFonts.sarabun(fontSize: 14, color: AppTheme.accentGreen)),
+            ],
           ],
         ),
         actions: [

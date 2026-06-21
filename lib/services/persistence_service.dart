@@ -19,6 +19,7 @@ class PersistenceService {
     await Hive.openBox('achievements');
     await Hive.openBox('statistics');
     await Hive.openBox('todo_progress');
+    await Hive.openBox('devices');
   }
 
   Box get userBox => Hive.box('user_profile');
@@ -27,6 +28,7 @@ class PersistenceService {
   Box get achievementsBox => Hive.box('achievements');
   Box get statsBox => Hive.box('statistics');
   Box get todoBox => Hive.box('todo_progress');
+  Box get devicesBox => Hive.box('devices');
 
   void save(String boxName, String key, dynamic value) {
     Hive.box(boxName).put(key, value);

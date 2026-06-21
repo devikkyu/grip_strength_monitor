@@ -77,13 +77,15 @@ class _TrainingHistoryScreenState extends State<TrainingHistoryScreen>
         scrollDirection: Axis.horizontal,
         child: Row(
           children: [
-            _buildFilterChip('all', AppLocalizations.get('allSessions')),
+            _buildFilterChip('all', 'ทั้งหมด'),
             SizedBox(width: 8),
-            _buildFilterChip('grip', AppLocalizations.get('gripSession')),
+            _buildFilterChip('measurement', 'วัดแรงบีบ'),
             SizedBox(width: 8),
-            _buildFilterChip('rhythm', AppLocalizations.get('rhythmSession')),
+            _buildFilterChip('grip_rhythm', 'เกมจังหวะ'),
             SizedBox(width: 8),
-            _buildFilterChip('guided', AppLocalizations.get('guidedSession')),
+            _buildFilterChip('music_rhythm', 'เล่นเพลง'),
+            SizedBox(width: 8),
+            _buildFilterChip('guided_training', 'โปรแกรมฝึก'),
           ],
         ),
       ),
@@ -249,11 +251,13 @@ class _TrainingHistoryScreenState extends State<TrainingHistoryScreen>
 
   Color _getTypeColor(String type) {
     switch (type) {
-      case 'grip':
+      case 'measurement':
         return AppTheme.primaryBlue;
-      case 'rhythm':
+      case 'grip_rhythm':
+        return AppTheme.primaryPink;
+      case 'music_rhythm':
         return AppTheme.accentGreen;
-      case 'guided':
+      case 'guided_training':
         return AppTheme.warningOrange;
       default:
         return AppTheme.primaryBlue;
@@ -262,11 +266,13 @@ class _TrainingHistoryScreenState extends State<TrainingHistoryScreen>
 
   IconData _getTypeIcon(String type) {
     switch (type) {
-      case 'grip':
+      case 'measurement':
         return Icons.fitness_center_rounded;
-      case 'rhythm':
+      case 'grip_rhythm':
+        return Icons.sports_esports_rounded;
+      case 'music_rhythm':
         return Icons.music_note_rounded;
-      case 'guided':
+      case 'guided_training':
         return Icons.school_rounded;
       default:
         return Icons.fitness_center_rounded;
@@ -275,11 +281,13 @@ class _TrainingHistoryScreenState extends State<TrainingHistoryScreen>
 
   String _getTypeName(String type) {
     switch (type) {
-      case 'grip':
+      case 'measurement':
         return AppLocalizations.get('gripSession');
-      case 'rhythm':
-        return AppLocalizations.get('rhythmSession');
-      case 'guided':
+      case 'grip_rhythm':
+        return 'เกมจังหวะ';
+      case 'music_rhythm':
+        return 'เล่นเพลง';
+      case 'guided_training':
         return AppLocalizations.get('guidedSession');
       default:
         return '';

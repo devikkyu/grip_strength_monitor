@@ -1,6 +1,9 @@
+import 'dart:math';
 import 'package:grip_strength_monitor/features/game/models/song_data.dart';
 
 class BeatmapGenerator {
+  static final Random _rand = Random();
+
   static List<BeatNote> generate({
     required double bpm,
     required Duration duration,
@@ -9,16 +12,20 @@ class BeatmapGenerator {
   }) {
     if (bpm <= 0 || duration.inMilliseconds <= 0) return [];
 
-    final intervalMs = 60000.0 / bpm;
+    final beatIntervalMs = 60000.0 / bpm;
+    final halfBeatMs = beatIntervalMs / 2;
     final availableMs = duration.inMilliseconds - startOffsetMs - endPaddingMs;
     if (availableMs <= 0) return [];
 
-    final noteCount = (availableMs / intervalMs).floor();
     final notes = <BeatNote>[];
+    double currentMs = 0;
 
-    for (int i = 0; i < noteCount; i++) {
-      final ts = (startOffsetMs + i * intervalMs).round();
-      notes.add(BeatNote(timestampMs: ts));
+    while (currentMs < availableMs) {
+      if (_rand.nextDouble() < 0.5) {
+        final ts = (startOffsetMs + currentMs).round();
+        notes.add(BeatNote(timestampMs: ts));
+      }
+      currentMs += halfBeatMs;
     }
 
     return notes;

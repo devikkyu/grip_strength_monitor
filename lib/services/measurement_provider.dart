@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'dart:async';
-import 'dart:math';
 import 'package:grip_strength_monitor/services/websocket_service.dart';
 import 'package:grip_strength_monitor/services/history_provider.dart';
 import 'package:grip_strength_monitor/shared/models/training_session.dart';
@@ -59,6 +58,7 @@ class MeasurementProvider extends ChangeNotifier {
   final WebSocketService _wsService;
   final HistoryProvider _historyProvider;
   StreamSubscription? _wsSubscription;
+  static const int _maxHistory = 200;
 
   MeasurementProvider(this._wsService, this._historyProvider);
 
@@ -79,15 +79,19 @@ class MeasurementProvider extends ChangeNotifier {
     _wsSubscription?.cancel();
     _wsSubscription = _wsService.gripStream.listen(
       (value) {
-        final history = List<double>.from(_state.gripHistory)..add(value);
-        final maxVal = history.isNotEmpty ? history.reduce(max) : 0.0;
-        final minVal = history.isNotEmpty ? history.reduce(min) : 0.0;
+        final history = _state.gripHistory;
+        final newHistory = history.length >= _maxHistory
+            ? [...history.sublist(1), value]
+            : [...history, value];
+
+        final maxVal = value > _state.maxGrip ? value : _state.maxGrip;
+        final minVal = (_state.gripHistory.isEmpty || value < _state.minGrip) ? value : _state.minGrip;
 
         _state = _state.copyWith(
           currentGrip: value,
           maxGrip: maxVal,
           minGrip: minVal,
-          gripHistory: history,
+          gripHistory: newHistory,
         );
         notifyListeners();
       },

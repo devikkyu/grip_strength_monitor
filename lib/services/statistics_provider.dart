@@ -7,6 +7,7 @@ enum TimePeriod { days7, days30, days90 }
 class StatisticsProvider extends ChangeNotifier {
   TimePeriod _selectedPeriod = TimePeriod.days7;
   final HistoryProvider _historyProvider;
+  List<GripData>? _cachedData;
 
   StatisticsProvider(this._historyProvider) {
     _historyProvider.addListener(_handleHistoryChange);
@@ -16,31 +17,44 @@ class StatisticsProvider extends ChangeNotifier {
 
   void updatePeriod(TimePeriod period) {
     _selectedPeriod = period;
+    _cachedData = null;
     notifyListeners();
   }
 
   List<GripData> get data {
+    if (_cachedData != null) return _cachedData!;
+    
     final now = DateTime.now();
     final days = _selectedPeriod == TimePeriod.days7 ? 7 : (_selectedPeriod == TimePeriod.days30 ? 30 : 90);
     final cutoff = now.subtract(Duration(days: days));
 
-    return _historyProvider.sessions
+    _cachedData = _historyProvider.sessions
         .where((s) => s.date.isAfter(cutoff))
         .map((s) => GripData(date: s.date, gripStrength: s.gripStrength))
         .toList()
       ..sort((a, b) => a.date.compareTo(b.date));
+    
+    return _cachedData!;
   }
 
   double get averageGrip {
     final currentData = data;
     if (currentData.isEmpty) return 0.0;
-    return currentData.fold<double>(0, (sum, item) => sum + item.gripStrength) / currentData.length;
+    double sum = 0;
+    for (final item in currentData) {
+      sum += item.gripStrength;
+    }
+    return sum / currentData.length;
   }
 
   double get maxGrip {
     final currentData = data;
     if (currentData.isEmpty) return 0.0;
-    return currentData.map((e) => e.gripStrength).reduce((a, b) => a > b ? a : b);
+    double max = currentData[0].gripStrength;
+    for (int i = 1; i < currentData.length; i++) {
+      if (currentData[i].gripStrength > max) max = currentData[i].gripStrength;
+    }
+    return max;
   }
 
   double get trend {
@@ -51,14 +65,24 @@ class StatisticsProvider extends ChangeNotifier {
     final recent = currentData.sublist(currentData.length - recentCount);
     final early = currentData.sublist(0, currentData.length - recentCount);
 
-    final avgRecent = recent.fold<double>(0, (sum, item) => sum + item.gripStrength) / recent.length;
-    final avgEarly = early.fold<double>(0, (sum, item) => sum + item.gripStrength) / early.length;
+    double sumRecent = 0;
+    for (final item in recent) {
+      sumRecent += item.gripStrength;
+    }
+    final avgRecent = sumRecent / recent.length;
+
+    double sumEarly = 0;
+    for (final item in early) {
+      sumEarly += item.gripStrength;
+    }
+    final avgEarly = sumEarly / early.length;
 
     if (avgEarly == 0) return 0.0;
     return ((avgRecent - avgEarly) / avgEarly) * 100;
   }
 
   void _handleHistoryChange() {
+    _cachedData = null;
     notifyListeners();
   }
 

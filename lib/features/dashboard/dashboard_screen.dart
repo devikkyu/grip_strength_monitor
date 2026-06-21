@@ -7,7 +7,7 @@ import 'package:grip_strength_monitor/services/connection_provider.dart';
 import 'package:grip_strength_monitor/services/todo_provider.dart';
 import 'package:grip_strength_monitor/services/grip_provider.dart';
 import 'package:grip_strength_monitor/services/sound_service.dart';
-import 'package:grip_strength_monitor/services/websocket_service.dart';
+import 'package:grip_strength_monitor/services/auto_connection_service.dart';
 import 'package:grip_strength_monitor/shared/models/grip_data.dart';
 import 'package:grip_strength_monitor/features/smart_rhythm/smart_rhythm_screen.dart';
 import 'package:grip_strength_monitor/features/measurement/grip_measurement_screen.dart';
@@ -18,7 +18,7 @@ import 'package:grip_strength_monitor/features/training/guided_training_screen.d
 import 'package:grip_strength_monitor/features/achievements/achievements_screen.dart';
 import 'package:grip_strength_monitor/features/game/grip_rhythm_game_screen.dart';
 import 'package:grip_strength_monitor/features/game/music_selection_screen.dart';
-import 'package:grip_strength_monitor/features/game/widgets/connection_dialog.dart';
+import 'package:grip_strength_monitor/features/game/widgets/device_discovery_screen.dart';
 
 class DashboardScreen extends StatefulWidget {
   const DashboardScreen({super.key});
@@ -27,13 +27,14 @@ class DashboardScreen extends StatefulWidget {
   State<DashboardScreen> createState() => _DashboardScreenState();
 }
 
-class _DashboardScreenState extends State<DashboardScreen> with TickerProviderStateMixin {
+class _DashboardScreenState extends State<DashboardScreen> with TickerProviderStateMixin, WidgetsBindingObserver {
   late final AnimationController _animController;
   late final AnimationController _pulseController;
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _animController = AnimationController(
       duration: const Duration(milliseconds: 1200),
       vsync: this,
@@ -46,9 +47,15 @@ class _DashboardScreenState extends State<DashboardScreen> with TickerProviderSt
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _animController.dispose();
     _pulseController.dispose();
     super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    // No auto-reconnect on resume - user must manually connect
   }
 
   @override
@@ -407,6 +414,9 @@ class _DashboardScreenState extends State<DashboardScreen> with TickerProviderSt
   }
 
   Widget _buildConnectionSection(BuildContext context, ConnectionProvider connProvider) {
+    final health = connProvider.deviceHealth;
+    final healthColor = _getHealthColor(health.quality);
+    
     return Container(
       width: double.infinity,
       padding: EdgeInsets.all(20),
@@ -417,68 +427,130 @@ class _DashboardScreenState extends State<DashboardScreen> with TickerProviderSt
           BoxShadow(color: AppTheme.primaryBlue.withValues(alpha: 0.08), blurRadius: 12, offset: Offset(0, 4)),
         ],
       ),
-      child: Row(
+      child: Column(
         children: [
-          Container(
-            width: 40,
-            height: 40,
-            decoration: BoxDecoration(
-              color: AppTheme.primaryBlue.withValues(alpha: 0.12),
-              borderRadius: BorderRadius.circular(10),
-            ),
-            child: Icon(Icons.wifi_rounded, color: AppTheme.primaryBlue, size: 22),
-          ),
-          SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'การเชื่อมต่อ',
-                  style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600, color: AppTheme.textPrimary),
+          Row(
+            children: [
+              Container(
+                width: 40,
+                height: 40,
+                decoration: BoxDecoration(
+                  color: AppTheme.primaryBlue.withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(10),
                 ),
-                SizedBox(height: 4),
-                Text(
-                  connProvider.status == ConnectionStatus.connected
-                    ? 'เชื่อมต่อกับ ESP32 แล้ว'
-                    : 'ยังไม่ได้เชื่อมต่ออุปกรณ์',
-                  style: TextStyle(fontSize: 13, color: AppTheme.textSecondary),
+                child: Icon(Icons.wifi_rounded, color: AppTheme.primaryBlue, size: 22),
+              ),
+              SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'การเชื่อมต่อ',
+                      style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600, color: AppTheme.textPrimary),
+                    ),
+                    SizedBox(height: 4),
+                    StreamBuilder<AutoConnectState>(
+                      stream: AutoConnectionService().stateStream,
+                      initialData: AutoConnectState.idle,
+                      builder: (context, snapshot) {
+                        final autoState = snapshot.data ?? AutoConnectState.idle;
+                        String statusText;
+                        if (connProvider.status == ConnectionStatus.connected) {
+                          statusText = 'เชื่อมต่อกับ ESP32 แล้ว';
+                        } else if (autoState == AutoConnectState.searching) {
+                          statusText = 'กำลังค้นหาอุปกรณ์...';
+                        } else if (autoState == AutoConnectState.connected) {
+                          statusText = 'เชื่อมต่อแล้ว';
+                        } else {
+                          statusText = 'ยังไม่ได้เชื่อมต่ออุปกรณ์';
+                        }
+                        return Text(
+                          statusText,
+                          style: TextStyle(fontSize: 13, color: AppTheme.textSecondary),
+                        );
+                      },
+                    ),
+                  ],
                 ),
-              ],
-            ),
+              ),
+              ElevatedButton(
+                onPressed: () {
+                  SoundService().playButton();
+                  _showConnectionDialog(context);
+                },
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: AppTheme.primaryBlue,
+                  foregroundColor: Colors.white,
+                  elevation: 0,
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                  padding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                ),
+                child: Text(
+                  connProvider.status == ConnectionStatus.connected ? 'เปลี่ยนอุปกรณ์' : 'เชื่อมต่อ',
+                  style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
+                ),
+              ),
+            ],
           ),
-          ElevatedButton(
-            onPressed: () {
-              SoundService().playButton();
-              _showConnectionDialog(context);
-            },
-            style: ElevatedButton.styleFrom(
-              backgroundColor: AppTheme.primaryBlue,
-              foregroundColor: Colors.white,
-              elevation: 0,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-              padding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+          if (connProvider.isConnected && connProvider.connectedDevice != null) ...[
+            SizedBox(height: 12),
+            Container(
+              padding: EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: healthColor.withValues(alpha: 0.1),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Row(
+                    children: [
+                      Container(
+                        width: 8,
+                        height: 8,
+                        decoration: BoxDecoration(
+                          color: healthColor,
+                          shape: BoxShape.circle,
+                        ),
+                      ),
+                      SizedBox(width: 8),
+                      Text(
+                        'สัญญาณ: ${connProvider.connectedDevice!.rssiQuality}',
+                        style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: healthColor),
+                      ),
+                    ],
+                  ),
+                  Text(
+                    '${connProvider.connectedDevice!.rssi} dBm',
+                    style: TextStyle(fontSize: 11, color: AppTheme.textSecondary),
+                  ),
+                ],
+              ),
             ),
-            child: Text(
-              connProvider.status == ConnectionStatus.connected ? 'เปลี่ยน IP' : 'เชื่อมต่อ',
-              style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
-            ),
-          ),
+          ],
         ],
       ),
     );
   }
 
-  void _showConnectionDialog(BuildContext context) {
-    final connProvider = Provider.of<ConnectionProvider>(context, listen: false);
-    final wsService = Provider.of<WebSocketService>(context, listen: false);
+  Color _getHealthColor(String quality) {
+    switch (quality) {
+      case 'Excellent':
+        return AppTheme.accentGreen;
+      case 'Good':
+        return AppTheme.primaryBlue;
+      case 'Weak':
+        return AppTheme.warningOrange;
+      default:
+        return AppTheme.textTertiary;
+    }
+  }
 
-    showDialog(
-      context: context,
-      builder: (context) => ConnectionDialog(
-        connProvider: connProvider,
-        wsService: wsService,
-      ),
+  void _showConnectionDialog(BuildContext context) {
+    Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => DeviceDiscoveryScreen()),
     );
   }
 

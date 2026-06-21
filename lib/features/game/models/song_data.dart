@@ -27,11 +27,9 @@ class SongData {
 class BeatNote {
   final int timestampMs;
   final int lane;
-  final bool isLong;
 
   const BeatNote({
     required this.timestampMs,
     this.lane = 0,
-    this.isLong = false,
   });
 }

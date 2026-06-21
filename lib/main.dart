@@ -14,6 +14,7 @@ import 'package:grip_strength_monitor/services/user_profile_provider.dart';
 import 'package:grip_strength_monitor/services/history_provider.dart';
 import 'package:grip_strength_monitor/services/achievement_provider.dart';
 import 'package:grip_strength_monitor/services/sound_service.dart';
+import 'package:grip_strength_monitor/services/device_discovery_service.dart';
 import 'package:grip_strength_monitor/features/splash/splash_screen.dart';
 
 void main() async {
@@ -39,6 +40,7 @@ class MyApp extends StatelessWidget {
         ChangeNotifierProvider(create: (_) => ThemeProvider()),
         ChangeNotifierProvider(create: (_) => ConnectionProvider()),
         Provider(create: (_) => WebSocketService()),
+        Provider(create: (_) => DeviceDiscoveryService()),
         ChangeNotifierProvider(create: (_) => HistoryProvider()),
         ChangeNotifierProvider(create: (_) => TodoProvider()),
         ChangeNotifierProvider(create: (_) => UserProfileProvider()),
